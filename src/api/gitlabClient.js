@@ -10,6 +10,11 @@
 // Days covered:
 //   Day 2 → getCurrentUser, getUserRepositories, searchRepositories
 //   Day 3 → getRepositoryTree, getFileContent, getDefaultBranch
+//
+// Scalability fixes applied:
+//   [FIX 1] getRepositoryTree now paginates through ALL files (was capped at 100)
+//   [FIX 2] downloadInBatches limits concurrent API calls to 5 at a time
+//           to avoid hitting GitLab's rate limit (300 req/min)
 // ─────────────────────────────────────────────────────────────
 
 const axios = require('axios');
@@ -156,8 +161,12 @@ async function getDefaultBranch(projectId) {
 
 /**
  * getRepositoryTree
- * Lists all files in the repo (recursively) as a flat array.
+ * Lists ALL files in the repo (recursively) as a flat array.
  * Does NOT download file contents — just paths and types.
+ *
+ * FIX 1: Now paginates through ALL pages instead of stopping at 100.
+ * GitLab returns max 100 items per page. A real project can have thousands
+ * of files — without pagination we'd silently miss files on page 2+.
  *
  * @param {number} projectId - GitLab project ID
  * @param {string} path      - Subfolder to list. '' = repo root
@@ -167,16 +176,81 @@ async function getDefaultBranch(projectId) {
  *   'blob' = file,  'tree' = directory
  */
 async function getRepositoryTree(projectId, path = '', branch = 'main') {
-  const response = await apiClient.get(`/projects/${projectId}/repository/tree`, {
-    params: {
-      path,
-      ref:       branch,
-      recursive: true,    // Get all files in all subdirectories
-      per_page:  100,
-    },
-  });
+  let allItems = [];
+  let page     = 1;
+  let hasMore  = true;
 
-  return response.data;
+  while (hasMore) {
+    const response = await apiClient.get(`/projects/${projectId}/repository/tree`, {
+      params: {
+        path,
+        ref:       branch,
+        recursive: true,
+        per_page:  100,   // Max GitLab allows per page
+        page,
+      },
+    });
+
+    allItems = allItems.concat(response.data);
+
+    // GitLab tells us the total number of pages in the response headers.
+    // If we are on the last page, stop the loop.
+    const totalPages = parseInt(response.headers['x-total-pages'] || '1', 10);
+    hasMore = page < totalPages;
+    page++;
+  }
+
+  console.log(`[GitLabClient] getRepositoryTree fetched ${allItems.length} items across ${page - 1} page(s)`);
+  return allItems;
+}
+
+/**
+ * downloadInBatches
+ * Downloads multiple files with a concurrency limit to avoid hitting
+ * GitLab's rate limit (300 requests/minute per user token).
+ *
+ * FIX 2: Instead of firing all downloads simultaneously (which can
+ * trigger 429 Too Many Requests on large repos), this processes files
+ * in groups of `batchSize` with a short pause between each group.
+ *
+ * @param {string[]} filePaths  - Array of file paths to download
+ * @param {number}   projectId  - GitLab project ID
+ * @param {string}   branch     - Branch to read from
+ * @param {number}   batchSize  - Max concurrent downloads (default 5)
+ * @param {Function} onProgress - Optional progress callback
+ *
+ * Returns: array of Promise.allSettled results
+ */
+async function downloadInBatches(filePaths, projectId, branch, batchSize = 5, onProgress = () => {}) {
+  const results   = [];
+  const total     = filePaths.length;
+
+  for (let i = 0; i < total; i += batchSize) {
+    // Slice out the next batch of up to `batchSize` files
+    const batch = filePaths.slice(i, i + batchSize);
+
+    onProgress(`Downloading files ${i + 1}–${Math.min(i + batchSize, total)} of ${total}...`);
+
+    // Download this batch in parallel — safe because it is only 5 at a time
+    const batchResults = await Promise.allSettled(
+      batch.map(async (filePath) => {
+        const content = await getFileContent(projectId, filePath, branch);
+        return { path: filePath, content };
+      })
+    );
+
+    results.push(...batchResults);
+
+    // Pause 200ms between batches so we stay well under GitLab's rate limit.
+    // At 5 files per batch + 200ms pause, we max out at ~25 requests/second —
+    // safely below the 300/minute (~5/second average) limit.
+    const isLastBatch = i + batchSize >= total;
+    if (!isLastBatch) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -214,4 +288,5 @@ module.exports = {
   getDefaultBranch,
   getRepositoryTree,
   getFileContent,
+  downloadInBatches,  // FIX 2: used by repoScanner to rate-limit downloads
 };

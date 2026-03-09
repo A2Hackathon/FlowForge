@@ -3,17 +3,20 @@
 // Day 3 core logic.
 //
 // Given a GitLab project ID, this file:
-//   1. Gets the full file list (no content yet — just paths)
-//   2. Identifies which of our target files exist in the repo
-//   3. Downloads those files in parallel
-//   4. Runs language + framework + compliance rules against them
-//   5. Returns a structured scan result
+//   1. Gets the FULL file list (paginated — no 100-file cap)
+//   2. Detects if this is a monorepo (multiple services in one repo)
+//   3. Identifies which of our target files exist per service
+//   4. Downloads those files in rate-limited batches
+//   5. Runs language + framework + compliance rules against them
+//   6. Returns a structured scan result (or one result per service)
 //
-// The scan result is passed directly to the architecture mapper
-// on Day 4 and used by Person B to render the "Detected Stack" screen.
+// Scalability fixes applied:
+//   [FIX 1] getRepositoryTree now paginates — handles repos of any size
+//   [FIX 2] downloadInBatches — max 5 concurrent downloads, avoids 429s
+//   [FIX 3] Monorepo detection — scans each service directory separately
 // ─────────────────────────────────────────────────────────────
 
-const { getRepositoryTree, getFileContent, getDefaultBranch } = require('../api/gitlabClient');
+const { getRepositoryTree, getFileContent, getDefaultBranch, downloadInBatches } = require('../api/gitlabClient');
 const { LANGUAGE_RULES, CONTENT_RULES, FILE_PRESENCE_RULES, COMPLIANCE_RULES } = require('./detectionRules');
 
 // Files we always try to download if they exist.
@@ -34,9 +37,10 @@ const FILES_TO_SCAN = [
  *
  * @param {number}   projectId  - GitLab project ID
  * @param {Function} onProgress - Called with a status string during scanning.
- *                                Forwarded to the frontend as a live update.
  *
- * @returns {Object} Structured scan result (see end of file for shape)
+ * @returns {Object} Structured scan result:
+ *   isMonorepo: boolean
+ *   services:   array of per-service results (length 1 for normal repos)
  */
 async function scanRepository(projectId, onProgress = () => {}) {
 
@@ -44,46 +48,160 @@ async function scanRepository(projectId, onProgress = () => {}) {
   onProgress('Detecting default branch...');
   const branch = await getDefaultBranch(projectId);
 
-  // ── Step 2: List all files in the repo ────────────────────
-  onProgress(`Fetching file list from '${branch}'...`);
+  // ── Step 2: List ALL files in the repo ────────────────────
+  // FIX 1: getRepositoryTree now paginates through every page,
+  // so we get ALL files — not just the first 100.
+  onProgress(`Fetching full file list from '${branch}'...`);
   const allFiles = await getRepositoryTree(projectId, '', branch);
 
-  // Build a Set of all file paths for fast O(1) lookups.
-  // We only want actual files (type 'blob'), not directories (type 'tree').
   const filePaths   = allFiles.filter(f => f.type === 'blob').map(f => f.path);
   const filePathSet = new Set(filePaths);
 
-  onProgress(`Found ${filePaths.length} files. Identifying key files...`);
+  onProgress(`Found ${filePaths.length} files total.`);
 
-  // ── Step 3: Filter to only files we care about ────────────
-  // Check both at root level ('package.json') and in subdirectories
-  // ('backend/package.json') — monorepos may have files nested deeper.
-  const filesToFetch = FILES_TO_SCAN.filter(target =>
-    filePathSet.has(target) ||
-    filePaths.some(p => p.endsWith('/' + target))
-  );
+  // ── Step 3: FIX 3 — Detect monorepo ───────────────────────
+  // A monorepo has multiple services each with their own dependency file.
+  // We find all directories that contain a known dependency file, then
+  // scan each one as a separate service.
+  const serviceDirs = findServiceDirectories(filePaths);
+  const isMonorepo  = serviceDirs.length > 1;
 
-  onProgress(`Downloading ${filesToFetch.length} key files...`);
+  if (isMonorepo) {
+    onProgress(`Monorepo detected — found ${serviceDirs.length} services: ${serviceDirs.map(d => d || 'root').join(', ')}`);
+  }
 
-  // ── Step 4: Download files in parallel ────────────────────
-  // Promise.allSettled() runs all downloads simultaneously and
-  // collects results without stopping on failures.
-  // This is much faster than sequential downloading.
-  const downloadResults = await Promise.allSettled(
-    filesToFetch.map(async (filePath) => {
-      const content = await getFileContent(projectId, filePath, branch);
-      return { path: filePath, content };
+  // ── Step 4: Scan each service directory ───────────────────
+  // For a normal repo, serviceDirs = [''] (just the root).
+  // For a monorepo, serviceDirs = ['frontend', 'backend', 'ml-service'], etc.
+  const serviceResults = await Promise.all(
+    serviceDirs.map((dir, index) => {
+      const label = dir || 'root';
+      return scanServiceDirectory({
+        projectId,
+        branch,
+        dir,
+        filePaths,
+        filePathSet,
+        onProgress: (msg) => onProgress(`[${label}] ${msg}`),
+      });
     })
   );
 
-  // Build a Map: { 'package.json' → '<file content>' }
-  // Store by both the full path AND just the filename so rules can
-  // match either 'Dockerfile' or 'backend/Dockerfile'.
+  onProgress('Scan complete!');
+
+  return {
+    projectId,
+    branch,
+    totalFiles: filePaths.length,
+    isMonorepo,
+    // For normal repos: services[0] is the full result (backwards compatible).
+    // For monorepos: one result per detected service directory.
+    services: serviceResults,
+    // Keep top-level shortcut for non-monorepo consumers (Day 4 mapper etc.)
+    ...(isMonorepo ? {} : serviceResults[0]),
+  };
+}
+
+/**
+ * findServiceDirectories
+ * FIX 3: Identifies distinct service directories within a repo.
+ *
+ * Logic: a "service" is any directory that contains a dependency file
+ * (package.json, requirements.txt, go.mod, etc.) at its root level.
+ *
+ * Examples:
+ *   Normal repo:  ['package.json']              → ['']   (just root)
+ *   Monorepo:     ['frontend/package.json',
+ *                  'backend/package.json',
+ *                  'ml/requirements.txt']        → ['frontend', 'backend', 'ml']
+ *
+ * @param {string[]} filePaths - All file paths in the repo
+ * @returns {string[]} Array of directory paths ('' = root)
+ */
+function findServiceDirectories(filePaths) {
+  // These files indicate the root of a service
+  const depFiles = [
+    'package.json', 'requirements.txt', 'go.mod',
+    'Gemfile', 'composer.json', 'Cargo.toml', 'pom.xml', 'build.gradle',
+  ];
+
+  const serviceDirs = new Set();
+
+  filePaths.forEach(filePath => {
+    const filename  = filePath.split('/').pop();
+    const isDepFile = depFiles.includes(filename);
+
+    if (isDepFile) {
+      // Get the directory containing this file.
+      // 'frontend/package.json' → 'frontend'
+      // 'package.json'          → '' (root)
+      const dir = filePath.includes('/')
+        ? filePath.substring(0, filePath.lastIndexOf('/'))
+        : '';
+
+      // Only count top-level service directories, not deeply nested ones.
+      // 'frontend' is a service. 'frontend/node_modules/lodash' is not.
+      const depth = dir.split('/').filter(Boolean).length;
+      if (depth <= 1) {
+        serviceDirs.add(dir);
+      }
+    }
+  });
+
+  // If nothing was found (unusual repo structure), default to root
+  if (serviceDirs.size === 0) serviceDirs.add('');
+
+  // Sort so root ('') comes first, then alphabetically
+  return Array.from(serviceDirs).sort((a, b) => {
+    if (a === '') return -1;
+    if (b === '') return 1;
+    return a.localeCompare(b);
+  });
+}
+
+/**
+ * scanServiceDirectory
+ * Scans one service directory within a repo.
+ * Called once for normal repos (dir='') and once per service for monorepos.
+ *
+ * @param {Object} opts
+ * @param {number}   opts.projectId   - GitLab project ID
+ * @param {string}   opts.branch      - Branch name
+ * @param {string}   opts.dir         - Service directory path ('' = root)
+ * @param {string[]} opts.filePaths   - All file paths in the whole repo
+ * @param {Set}      opts.filePathSet - Set version for O(1) lookups
+ * @param {Function} opts.onProgress  - Progress callback
+ */
+async function scanServiceDirectory({ projectId, branch, dir, filePaths, filePathSet, onProgress }) {
+
+  // Build the list of files we want to fetch, scoped to this directory.
+  // For root (''), we look for 'package.json'.
+  // For 'frontend/', we look for 'frontend/package.json'.
+  const prefix     = dir ? `${dir}/` : '';
+  const filesToFetch = FILES_TO_SCAN
+    .map(target => prefix + target)               // Prefix each target with the dir
+    .filter(fullPath => filePathSet.has(fullPath)); // Only keep ones that exist
+
+  onProgress(`Found ${filesToFetch.length} key files to download.`);
+
+  // ── FIX 2: Download in rate-limited batches ──────────────
+  // Instead of firing all requests simultaneously, we process
+  // 5 at a time with a 200ms pause between batches.
+  const downloadResults = await downloadInBatches(
+    filesToFetch,
+    projectId,
+    branch,
+    5,          // batchSize: 5 concurrent downloads at a time
+    onProgress
+  );
+
+  // Build content map: { 'package.json' → '{ ... }' }
+  // Store by both full path AND bare filename for flexible rule matching.
   const fileContents = new Map();
   downloadResults.forEach(result => {
     if (result.status === 'fulfilled') {
       const { path, content } = result.value;
-      const filename = path.split('/').pop();   // 'src/Dockerfile' → 'Dockerfile'
+      const filename = path.split('/').pop();
       fileContents.set(filename, content);
       fileContents.set(path, content);
     }
@@ -91,27 +209,24 @@ async function scanRepository(projectId, onProgress = () => {}) {
 
   onProgress('Running detection rules...');
 
-  // ── Step 5: Run all detection rules ───────────────────────
-  const languages      = detectLanguages(filePathSet, filePaths);
+  // Scope filePaths to just this service directory for detection
+  const scopedPaths   = filePaths.filter(p => p.startsWith(prefix));
+  const scopedPathSet = new Set(scopedPaths);
+
+  const languages      = detectLanguages(scopedPathSet, scopedPaths);
   const frameworks     = detectFrameworks(fileContents);
-  const infrastructure = detectInfrastructure(filePathSet);
-  const compliance     = checkCompliance(filePathSet);
+  const infrastructure = detectInfrastructure(scopedPathSet);
+  const compliance     = checkCompliance(scopedPathSet);
   const dependencies   = extractDependencies(fileContents);
 
-  onProgress('Scan complete!');
-
-  // ── Step 6: Return the structured result ──────────────────
   return {
-    projectId,
-    branch,
-    totalFiles:    filePaths.length,
-    scannedFiles:  filesToFetch,
+    serviceDir:   dir || 'root',
+    scannedFiles: filesToFetch,
     languages,
     frameworks,
     infrastructure,
     compliance,
     dependencies,
-    // Flat summary used by Day 4 architecture mapper and the UI
     summary: {
       technologies: [
         ...languages.map(l => l.name),
