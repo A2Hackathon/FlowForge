@@ -1,34 +1,27 @@
 import startScreen from "./assets/start.png";
 import continueButton from "./assets/continue_button.png";
 import loginScreen from "./assets/log-in.png";
-import repoList from "./assets/repo-list.png";
 
 import { useEffect, useState } from "react";
+import Analysis from "./Analysis";
 
 function StartButton({ onClick }: { onClick: () => void }) {
-  const [showButton, setShowButton] = useState(false);
   const [flash, setFlash] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowButton(true);
+    let count = 0;
+    const flashInterval = setInterval(() => {
+      setFlash(prev => !prev);
+      count++;
 
-      let count = 0;
-      const flashInterval = setInterval(() => {
-        setFlash(prev => !prev);
-        count++;
+      if (count > 6) {
+        clearInterval(flashInterval);
+        setFlash(false);
+      }
+    }, 300);
 
-        if (count > 6) {
-          clearInterval(flashInterval);
-          setFlash(false);
-        }
-      }, 300);
-    }, 3000);
-
-    return () => clearTimeout(timer);
+    return () => clearInterval(flashInterval);
   }, []);
-
-  if (!showButton) return null;
 
   return (
     <img
@@ -53,7 +46,9 @@ function StartButton({ onClick }: { onClick: () => void }) {
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [screen, setScreen] = useState<"start" | "login" | "repo">("start");
+  const [screen, setScreen] = useState<
+    "start" | "login" | "repo" | "analyzing"
+  >("start");
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
@@ -203,17 +198,12 @@ export default function Login() {
 
       {/* REPO LIST SCREEN */}
       {screen === "repo" && (
-        <img
-          src={repoList}
-          alt="Repo List"
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            position: "absolute",
-            zIndex: 0
-          }}
-        />
+        <Analysis mode="repo" onContinue={() => setScreen("analyzing")} />
+      )}
+
+      {/* ANALYZING SCREEN */}
+      {screen === "analyzing" && (
+        <Analysis mode="analyzing" />
       )}
     </div>
   );
