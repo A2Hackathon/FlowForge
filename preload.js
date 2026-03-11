@@ -41,4 +41,19 @@ contextBridge.exposeInMainWorld('api', {
   // ── ARCHITECTURE ────────────────────────────────────────────
   generateGraph: (params) => ipcRenderer.invoke('architect:generate', params),
 
+  // ── GCP PLANNING ────────────────────────────────────────────
+  // params: { scanResult, graphResult, fileContents, usageAnswers }
+  //   fileContents: plain object converted from Map via Object.fromEntries(map)
+  //   usageAnswers: { expectedDailyUsers, teamSize, budget, isProduction, expectsSpikes }
+  generateGcpPlan: (params) => ipcRenderer.invoke('gcp:plan',       params),
+  // params: { gcpPlan, productName, tierId }
+  updateGcpTier:   (params) => ipcRenderer.invoke('gcp:updateTier', params),
+
+  // Push listener for GCP planning progress (same pattern as scanner)
+  onGcpProgress: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('gcp:progress', listener);
+    return () => ipcRenderer.removeListener('gcp:progress', listener);
+  },
+
 });

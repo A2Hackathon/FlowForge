@@ -22,14 +22,16 @@
 //   Day 2 → repos:list, repos:search
 //   Day 3 → scanner:scan  (+ push event scanner:progress)
 //   Day 4 → architect:generate
+//   Day 5 → gcp:plan, gcp:updateTier
 // ─────────────────────────────────────────────────────────────
 
-const { ipcMain }          = require('electron');
-const { login }            = require('../auth/gitlabAuth');
-const { isLoggedIn, clearTokens } = require('../store/tokenStore');
+const { ipcMain }                    = require('electron');
+const { login }                      = require('../auth/gitlabAuth');
+const { isLoggedIn, clearTokens }    = require('../store/tokenStore');
 const { getCurrentUser, getUserRepositories, searchRepositories } = require('../api/gitlabClient');
-const { scanRepository }   = require('../scanner/repoScanner');
-const { generateArchitectureGraph } = require('../architect/architectureMapper');
+const { scanRepository }             = require('../scanner/repoScanner');
+const { generateArchitectureGraph }  = require('../architect/architectureMapper');
+const { generateGcpPlan, updateServiceTier } = require('../cloud/gcpPlanner');
 
 /**
  * registerIpcHandlers
@@ -136,6 +138,43 @@ function registerIpcHandlers(mainWindow) {
     } catch (e) {
       return fail(e);
     }
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // DAY 5 — GCP infrastructure planning
+  // ════════════════════════════════════════════════════════════
+
+  // Generates the full GCP plan using Claude AI + live GCP pricing.
+  //
+  // Frontend sends: { scanResult, graphResult, fileContents, usageAnswers }
+  //   fileContents:  plain object { filename: content } — IPC can't send Maps,
+  //                  so the frontend converts the Map to an object first.
+  //                  We convert it back to a Map here before passing to Claude.
+  //   usageAnswers:  { expectedDailyUsers, teamSize, budget,
+  //                    isProduction, expectsSpikes }
+  //                  From a short questionnaire Person B shows before Day 5.
+  ipcMain.handle('gcp:plan', async (_event, { scanResult, graphResult, fileContents = {}, usageAnswers = {} }) => {
+    try {
+      const onProgress = (message) => {
+        mainWindow.webContents.send('gcp:progress', { message });
+      };
+
+      // Convert plain object back to Map — IPC serialises Maps as plain objects
+      const fileContentsMap = new Map(Object.entries(fileContents));
+
+      const plan = await generateGcpPlan(
+        scanResult, graphResult, fileContentsMap, usageAnswers, onProgress
+      );
+      return ok(plan);
+    } catch (e) { return fail(e); }
+  });
+
+  // Called when user changes a tier in the Infrastructure Dashboard.
+  // Fast — no API calls, just recalculates costs locally.
+  ipcMain.handle('gcp:updateTier', (_event, { gcpPlan, productName, tierId }) => {
+    try {
+      return ok(updateServiceTier(gcpPlan, productName, tierId));
+    } catch (e) { return fail(e); }
   });
 }
 

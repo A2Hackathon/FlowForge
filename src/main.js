@@ -5,11 +5,17 @@
 // sees "main": "src/main.js", and runs this file first.
 //
 // Responsibilities:
-//   1. Create the desktop window (BrowserWindow)
-//   2. Load the React frontend into it
-//   3. Register all IPC handlers (backend ↔ frontend bridge)
-//   4. Handle app lifecycle (open, close, dock behaviour on Mac)
+//   1. Load .env credentials (dotenv) — must happen before anything else
+//   2. Create the desktop window (BrowserWindow)
+//   3. Load the React frontend into it
+//   4. Register all IPC handlers (backend ↔ frontend bridge)
+//   5. Handle app lifecycle (open, close, dock behaviour on Mac)
 // ─────────────────────────────────────────────────────────────
+
+// Load .env file first — before any other require().
+// This populates process.env with GITLAB_CLIENT_ID, ANTHROPIC_API_KEY, etc.
+// If a variable is already set in the shell environment, dotenv won't override it.
+require('dotenv').config();
 
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
