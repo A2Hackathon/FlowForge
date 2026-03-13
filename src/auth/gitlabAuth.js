@@ -1,20 +1,4 @@
-// src/auth/gitlabAuth.js
-// ─────────────────────────────────────────────────────────────
-// Orchestrates the full GitLab OAuth 2.0 login flow.
-//
-// OAuth analogy:
-//   "code"         = a one-time slip of paper from the front desk
-//   "access token" = the actual key card that opens doors
-//   This file swaps the slip for the key card.
-//
-// Step-by-step:
-//   1. Build the GitLab authorization URL
-//   2. Start the local callback server (oauthServer.js)
-//   3. Open the user's browser to the GitLab login page
-//   4. Wait for the user to log in (the callback server catches the redirect)
-//   5. Exchange the code for a real access + refresh token
-//   6. Save the tokens (tokenStore.js)
-// ─────────────────────────────────────────────────────────────
+require('dotenv').config();
 
 const axios            = require('axios');
 const { shell }        = require('electron');   // Opens URLs in the OS browser
@@ -23,23 +7,16 @@ const { startOAuthCallbackServer, REDIRECT_URI } = require('./oauthServer');
 const { saveTokens }   = require('../store/tokenStore');
 
 // ── Config ────────────────────────────────────────────────────
-// Load from environment variables. Never hardcode secrets in source code.
-// Set these before running:
-//   export GITLAB_CLIENT_ID=your_id
-//   export GITLAB_CLIENT_SECRET=your_secret
+
 const GITLAB_URL     = process.env.GITLAB_URL     || 'https://gitlab.com';
 const CLIENT_ID      = process.env.GITLAB_CLIENT_ID     || 'YOUR_CLIENT_ID';
 const CLIENT_SECRET  = process.env.GITLAB_CLIENT_SECRET || 'YOUR_CLIENT_SECRET';
 
 // Scopes = permissions we're requesting from GitLab.
-//   read_user        → access the user's profile (name, avatar, etc.)
-//   read_api         → read repos, branches, file contents
-//   write_repository → commit files (needed on Day 6 for the pipeline YAML)
+
 const SCOPES = 'read_user read_api write_repository';
 
-// We generate a random 'state' string and verify it in the callback.
-// This prevents CSRF attacks where a malicious site tricks our app
-// into accepting a code it didn't request.
+
 let pendingState = null;
 
 function generateState() {

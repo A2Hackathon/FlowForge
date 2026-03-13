@@ -94,6 +94,8 @@ async function scanRepository(projectId, onProgress = () => {}) {
     branch,
     totalFiles: filePaths.length,
     isMonorepo,
+    // Flat list of repo entries for confirm screen (path + type: 'blob'|'tree').
+    repositoryTree: allFiles.map(f => ({ path: f.path, type: f.type })),
     // For normal repos: services[0] is the full result (backwards compatible).
     // For monorepos: one result per detected service directory.
     services: serviceResults,
