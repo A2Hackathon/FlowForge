@@ -279,6 +279,120 @@ async function getFileContent(projectId, filePath, branch = 'main') {
   return Buffer.from(response.data.content, 'base64').toString('utf-8');
 }
 
+// ════════════════════════════════════════════════════════════
+// DAY 6 — Pipeline commit and status
+// ════════════════════════════════════════════════════════════
+
+/**
+ * commitFile
+ * Creates or updates a single file in a GitLab repo.
+ * Uses PUT if the file already exists, POST if it doesn't.
+ * GitLab automatically triggers a pipeline on the commit.
+ *
+ * @param {number} projectId     - GitLab project ID
+ * @param {string} filePath      - File path in repo e.g. '.gitlab-ci.yml'
+ * @param {string} content       - File content as a plain string
+ * @param {string} message       - Commit message
+ * @param {string} branch        - Target branch (usually the default branch)
+ *
+ * Returns: { id, short_id, title, ... } — the GitLab commit object
+ */
+async function commitFile(projectId, filePath, content, message, branch) {
+  const encodedPath = encodeURIComponent(filePath);
+  const payload = {
+    branch,
+    content,
+    commit_message: message,
+    encoding: 'text',
+  };
+
+  try {
+    // Try PUT first (update existing file)
+    const response = await apiClient.put(
+      `/projects/${projectId}/repository/files/${encodedPath}`,
+      payload
+    );
+    return response.data;
+  } catch (err) {
+    if (err.response?.status === 400 || err.response?.status === 404) {
+      // File doesn't exist yet — create it with POST
+      const response = await apiClient.post(
+        `/projects/${projectId}/repository/files/${encodedPath}`,
+        payload
+      );
+      return response.data;
+    }
+    throw err;
+  }
+}
+
+/**
+ * getProjectPipelines
+ * Lists the most recent pipelines for a project.
+ * Used after committing to find the pipeline that was just triggered.
+ *
+ * @param {number} projectId - GitLab project ID
+ * @param {number} limit     - Max pipelines to return (default 5)
+ *
+ * Returns: array of pipeline objects (id, sha, status, web_url, ...)
+ */
+async function getProjectPipelines(projectId, limit = 5) {
+  const response = await apiClient.get(`/projects/${projectId}/pipelines`, {
+    params: {
+      order_by: 'id',
+      sort:     'desc',
+      per_page: limit,
+    },
+  });
+  return response.data;
+}
+
+/**
+ * getPipelineJobs
+ * Fetches the list of jobs for a specific pipeline.
+ * Each job represents one CI stage step (build-image, deploy-cloud-run, etc.)
+ * with its own status, log URL, and timing.
+ *
+ * @param {number} projectId  - GitLab project ID
+ * @param {number} pipelineId - Pipeline ID
+ *
+ * Returns: array of job objects (id, name, stage, status, web_url, ...)
+ */
+async function getPipelineJobs(projectId, pipelineId) {
+  const response = await apiClient.get(
+    `/projects/${projectId}/pipelines/${pipelineId}/jobs`,
+    { params: { per_page: 50 } }
+  );
+  return response.data;
+}
+
+// ════════════════════════════════════════════════════════════
+// DAY 7 — Log fetching
+// ════════════════════════════════════════════════════════════
+
+/**
+ * getJobLog
+ * Downloads the raw console log for a single CI job.
+ * GitLab returns logs as plain text (ANSI escape codes included).
+ * The log grows while the job is running — call again to get new lines.
+ *
+ * @param {number} projectId - GitLab project ID
+ * @param {number} jobId     - Job ID (from getPipelineJobs)
+ *
+ * Returns: raw log as a plain string
+ */
+async function getJobLog(projectId, jobId) {
+  const response = await apiClient.get(
+    `/projects/${projectId}/jobs/${jobId}/trace`,
+    {
+      // The log endpoint returns plain text, not JSON
+      responseType: 'text',
+      headers: { Accept: 'text/plain' },
+    }
+  );
+  return response.data || '';
+}
+
 module.exports = {
   // Day 2
   getCurrentUser,
@@ -288,5 +402,11 @@ module.exports = {
   getDefaultBranch,
   getRepositoryTree,
   getFileContent,
-  downloadInBatches,  // FIX 2: used by repoScanner to rate-limit downloads
+  downloadInBatches,
+  // Day 6
+  commitFile,
+  getProjectPipelines,
+  getPipelineJobs,
+  // Day 7
+  getJobLog,
 };
