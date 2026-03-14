@@ -7,31 +7,27 @@
 // .env file loaded at startup — no UI, no database, no electron-store
 // fields for them.
 //
+// For CLI/CI (no Electron): set GITLAB_TOKEN in env; getAccessToken() returns it.
+//
 // electron-store writes to:
 //   Windows : %APPDATA%/cloudmapper/config.json
 //   Mac     : ~/Library/Application Support/cloudmapper/config.json
 //   Linux   : ~/.config/cloudmapper/config.json
 // ─────────────────────────────────────────────────────────────
 
-const Store = require('electron-store');
-
-const store = new Store({
-  schema: {
-    accessToken: {
-      type: ['string', 'null'],
-      default: null,
+let store = null;
+try {
+  const Store = require('electron-store');
+  store = new Store({
+    schema: {
+      accessToken:    { type: ['string', 'null'], default: null },
+      refreshToken:   { type: ['string', 'null'], default: null },
+      tokenExpiresAt: { type: ['number', 'null'], default: null },
     },
-    refreshToken: {
-      type: ['string', 'null'],
-      default: null,
-    },
-    // Unix timestamp (ms) when the access token expires
-    tokenExpiresAt: {
-      type: ['number', 'null'],
-      default: null,
-    },
-  },
-});
+  });
+} catch (err) {
+  // Not in Electron (e.g. CLI / CI); use GITLAB_TOKEN from env only
+}
 
 // ════════════════════════════════════════════════════════════
 // GitLab OAuth tokens
@@ -45,16 +41,21 @@ const store = new Store({
  * @param {number} expiresIn - seconds until the access token expires
  */
 function saveTokens(accessToken, refreshToken, expiresIn) {
-  store.set('accessToken',    accessToken);
-  store.set('refreshToken',   refreshToken);
-  store.set('tokenExpiresAt', Date.now() + expiresIn * 1000);
+  if (store) {
+    store.set('accessToken',    accessToken);
+    store.set('refreshToken',   refreshToken);
+    store.set('tokenExpiresAt', Date.now() + expiresIn * 1000);
+  }
 }
 
 /**
  * getAccessToken
  * Returns the access token if it exists and hasn't expired, else null.
+ * In CLI/CI (no Electron), uses GITLAB_TOKEN from env.
  */
 function getAccessToken() {
+  if (process.env.GITLAB_TOKEN) return process.env.GITLAB_TOKEN;
+  if (!store) return null;
   const token     = store.get('accessToken');
   const expiresAt = store.get('tokenExpiresAt');
   if (!token) return null;
@@ -65,16 +66,20 @@ function getAccessToken() {
   return token;
 }
 
-function getRefreshToken() { return store.get('refreshToken'); }
+function getRefreshToken() {
+  return store ? store.get('refreshToken') : null;
+}
 
 /**
  * clearTokens
  * Logs the user out by removing all token data from disk.
  */
 function clearTokens() {
-  store.delete('accessToken');
-  store.delete('refreshToken');
-  store.delete('tokenExpiresAt');
+  if (store) {
+    store.delete('accessToken');
+    store.delete('refreshToken');
+    store.delete('tokenExpiresAt');
+  }
 }
 
 /**

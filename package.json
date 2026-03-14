@@ -5,7 +5,9 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "NODE_ENV=development electron ."
+    "dev": "NODE_ENV=development electron .",
+    "agent:plan": "node src/agent/cli.js",
+    "trigger-pipeline": "node scripts/trigger-pipeline.js"
   },
   "dependencies": {
     "@minoru/react-dnd-treeview": "^3.5.3",

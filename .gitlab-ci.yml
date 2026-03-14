@@ -1,0 +1,9 @@
+gcp-plan:
+  image: node:20
+  before_script:
+    - npm ci
+  script:
+    - node src/agent/cli.js $CI_PROJECT_ID
+  variables:
+    GITLAB_TOKEN: $CI_JOB_TOKEN
+    GITLAB_PROJECT_ID: $CI_PROJECT_ID

@@ -1,0 +1,19 @@
+# FlowForge Duo flow execution: run GCP plan CLI before the flow agent.
+# When the flow is triggered (mention/assign), this runs in the workload job.
+# Output: gcp-plan.json in job workspace; agent reads it and summarizes.
+
+image: node:20-alpine
+
+setup_script:
+  - apk add --no-cache git
+  - npm ci
+  # GITLAB_TOKEN and CI_PROJECT_ID are provided by the Duo workload pipeline
+  - node src/agent/cli.js "${CI_PROJECT_ID}" > gcp-plan.json
+
+cache:
+  paths:
+    - node_modules/
+  key:
+    files:
+      - package-lock.json
+    prefix: flowforge
