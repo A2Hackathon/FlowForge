@@ -87,18 +87,50 @@ For **Electron app / OAuth** you also need `GITLAB_CLIENT_ID` and `GITLAB_CLIENT
 
 ## GitLab Duo flow
 
-The Duo flow runs the same pipeline logic in a GitLab Duo workload job so the agent can use the results.
+The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes the GCP plan and suggested pipeline in the response.
 
 **What the Duo flow does:**
 
-1. When the flow is triggered (e.g. mention or assign), the workload job runs in the project?s CI context.
-2. **Setup:** installs deps and runs  
-   `node src/agent/cli.js "${CI_PROJECT_ID}"`  
-   with `GITLAB_TOKEN` (and optionally other env) provided by the Duo pipeline.
-3. **Output:** the CLI prints JSON `{ gcpPlan, pipelineYaml }`. The job can redirect that to a file (e.g. `> gcp-plan.json` so the artifact contains the full object) or use `--write-files` so the workspace has `gcp-plan.json` and `.gitlab-ci.yml`.
-4. The Duo agent reads the plan and/or pipeline and can summarize, suggest changes, or hand off to other steps.
+1. When the flow is triggered (e.g. mention or assign), the workload job runs in the project's CI context.
+2. **Setup** (`.gitlab/duo/agent-config.yml`): installs deps and runs  
+   `node src/agent/cli.js "${CI_PROJECT_ID}" --write-files`  
+   so the workspace gets `gcp-plan.json` and `.gitlab-ci.yml`. `GITLAB_TOKEN` and `CI_PROJECT_ID` are provided by the Duo pipeline.
+3. **Agent:** the flow uses a summarizer component that reads those files and returns a concise summary of the GCP plan (cost, performance, security) and the suggested GitLab CI pipeline (build → test → deploy).
+4. Optional: you can add an "ask usage" step (e.g. expected users, budget) before the CLI runs, or a "trigger pipeline" step that runs `scripts/trigger-pipeline.js` after the summary.
 
-Config lives in `.gitlab/duo/agent-config.yml` (image, setup_script, cache). No separate ?flow definition? is required for this single-step ?run CLI and use output? pattern.
+---
+
+## Create the flow on GitLab and test it
+
+You need a **GitLab group** and **project** where you have Maintainer or Owner role (and Duo Agent Platform / flows enabled). Then:
+
+### 1. Create the flow
+
+- Go to **Automate → Flows → Create flow**, or **Explore → AI Catalog → Flows → Create flow**.
+- **Display name:** e.g. `FlowForge GCP plan`
+- **Description:** e.g. `Scans repo and generates GCP plan + suggested pipeline; summarizes both in the response.`
+- **Configuration:** paste the contents of `.gitlab/duo/flows/flowforge-gcp.yaml` from this repo (the YAML with `gcp_plan_summarizer`, local prompt, `read_file` / `list_dir`, and routing to end).
+
+### 2. Enable the flow and set triggers
+
+- Enable the flow (first in the **group**, then in the **project** if needed).
+- When enabling, choose when the flow runs:
+  - **Mention:** when the flow’s service account is @mentioned in an issue or MR comment
+  - **Assign:** when the service account is assigned to an issue or MR
+  - **Assign reviewer:** when the service account is assigned as MR reviewer
+- Enabling creates a service account (e.g. `ai-flowforge-gcp-plan-<group>`). Mention or assign that account to start the flow.
+
+### 3. Optional: create a trigger explicitly
+
+- Go to **Automate → Triggers → Create flow trigger**.
+- Pick the same events (mention, assign, assign reviewer) and link the trigger to the flow you created, or (if your instance supports it) to the repo config at `.gitlab/duo/flows/flowforge-gcp.yaml`.
+
+### 4. Run and test
+
+- In an issue or MR, mention or assign the flow’s service account. The workload runs the CLI (using this project’s `.gitlab/duo/agent-config.yml`), then the agent summarizes the GCP plan and suggested pipeline in the response.
+- **Optional trigger pipeline:** to run a pipeline from the flow, use a step or script that calls  
+  `node scripts/trigger-pipeline.js <projectId> [branch]`  
+  with `GITLAB_TOKEN` set. Triggering is separate from the Duo flow definition (e.g. push to branch or a manual "run pipeline" action).
 
 ---
 
