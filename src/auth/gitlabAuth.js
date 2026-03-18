@@ -1,7 +1,12 @@
 require('dotenv').config();
 
 const axios            = require('axios');
-const { shell }        = require('electron');   // Opens URLs in the OS browser
+let shell = null;
+try {
+  ({ shell } = require('electron')); // Opens URLs in the OS browser (Electron only)
+} catch (_) {
+  // Not running inside Electron (e.g. CLI / CI)
+}
 const crypto           = require('crypto');     // Generates random state values
 const { startOAuthCallbackServer, REDIRECT_URI } = require('./oauthServer');
 const { saveTokens }   = require('../store/tokenStore');
@@ -72,17 +77,20 @@ async function exchangeCodeForToken(code) {
  */
 async function login() {
   console.log('[GitLabAuth] Starting OAuth flow...');
-
-  // Start the callback server BEFORE opening the browser.
-  // If we did it the other way around, GitLab might redirect before
-  // our server is ready to receive the request.
-  const codePromise = startOAuthCallbackServer();
+  if (!shell) {
+    throw new Error('GitLab OAuth login requires Electron (shell.openExternal unavailable)');
+  }
 
   // Open the GitLab login page in the user's default browser.
   // shell.openExternal() uses the OS to open the URL — Chrome, Firefox, etc.
   // We use the OS browser (not an Electron window) so the user benefits
   // from any existing GitLab session they already have.
   const authUrl = buildAuthUrl();
+
+  // Start the callback server BEFORE opening the browser.
+  // If we did it the other way around, GitLab might redirect before
+  // our server is ready to receive the request.
+  const codePromise = startOAuthCallbackServer(pendingState);
   await shell.openExternal(authUrl);
 
   console.log('[GitLabAuth] Waiting for user to log in...');

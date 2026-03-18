@@ -33,7 +33,7 @@ const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}/callback`;
  * authorization code once GitLab redirects the user back.
  * Rejects if the user denies access or the 5-minute timeout expires.
  */
-function startOAuthCallbackServer() {
+function startOAuthCallbackServer(expectedState) {
   return new Promise((resolve, reject) => {
     const app    = express();
     const server = http.createServer(app);
@@ -48,7 +48,7 @@ function startOAuthCallbackServer() {
     // GitLab sends the user here after they approve or deny access.
     // URL looks like: http://localhost:3000/callback?code=abc123&state=xyz
     app.get('/callback', (req, res) => {
-      const { code, error } = req.query;
+      const { code, error, state } = req.query;
 
       // User denied access, or something went wrong on GitLab's side.
       if (error) {
@@ -56,6 +56,14 @@ function startOAuthCallbackServer() {
         clearTimeout(timeout);
         server.close();
         reject(new Error(`GitLab OAuth error: ${error}`));
+        return;
+      }
+
+      if (expectedState && state !== expectedState) {
+        res.send('<h2 style="font-family:Arial">Invalid login state. You can close this tab.</h2>');
+        clearTimeout(timeout);
+        server.close();
+        reject(new Error('Invalid OAuth state in callback URL'));
         return;
       }
 
