@@ -1,20 +1,24 @@
-# FlowForge Duo flow execution: run GCP plan CLI before the flow agent.
+# FlowForge Duo flow execution: index + retrieve (grounded context), then GCP plan CLI; agent summarizes with citations.
 # When the flow is triggered (mention/assign), this runs in the workload job.
-# Output: gcp-plan.json and .gitlab-ci.yml in workspace; the flow agent reads and summarizes both.
 
 image: node:20-alpine
 
 setup_script:
   - apk add --no-cache git
   - npm ci
+  - cd tools/retriever && npm ci && cd ../..
+  # Retriever: index repo (entities + edges), then retrieve snippets for the user question (GOAL or fallback).
+  - node tools/retriever/index.js index --repo . --out retrieval
+  - node tools/retriever/index.js retrieve --repo . --index retrieval/index.json --query "${GOAL:-Summarize this repo and how auth and deployment work}" --out retrieval
   # GITLAB_TOKEN and CI_PROJECT_ID are provided by the Duo workload pipeline.
-  # --write-files writes gcp-plan.json and .gitlab-ci.yml so the summarizer agent can read both.
   - node src/agent/cli.js "${CI_PROJECT_ID}" --write-files
 
 cache:
   paths:
     - node_modules/
+    - tools/retriever/node_modules/
   key:
     files:
       - package-lock.json
+      - tools/retriever/package.json
     prefix: flowforge

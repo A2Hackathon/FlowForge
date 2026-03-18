@@ -1,0 +1,18 @@
+{
+  "query": "how does authentication work",
+  "selected": [
+    {
+      "entity": "src/scanner/repoScanner.js#detectFrameworks",
+      "file": "src/scanner/repoScanner.js",
+      "lines": [
+        264,
+        280
+      ],
+      "why": "keyword match"
+    }
+  ],
+  "limits": {
+    "maxEntities": 40,
+    "maxFiles": 15
+  }
+}

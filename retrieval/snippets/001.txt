@@ -1,0 +1,25 @@
+FILE: src/scanner/repoScanner.js
+LINES: 262-282
+--- SNIPPET START ---
+}
+
+function detectFrameworks(fileContents) {
+  const detected = [];
+  const seen     = new Set();   // Prevent duplicate entries
+
+  for (const rule of CONTENT_RULES) {
+    const content = fileContents.get(rule.file);
+    if (!content) continue;
+
+    // Case-insensitive match
+    if (content.toLowerCase().includes(rule.contains.toLowerCase()) && !seen.has(rule.name)) {
+      seen.add(rule.name);
+      detected.push({ name: rule.name, type: rule.type, description: rule.description });
+    }
+  }
+
+  return detected;
+}
+
+function detectInfrastructure(filePathSet) {
+--- SNIPPET END ---
