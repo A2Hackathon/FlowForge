@@ -1,4 +1,4 @@
-// src/cloud/claudeAnalyser.js
+// src/cloud/claudeanalyser.js
 // ─────────────────────────────────────────────────────────────
 // Uses the Claude API for two things hardcoded rules cannot do:
 //

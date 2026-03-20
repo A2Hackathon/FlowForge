@@ -4,13 +4,13 @@
 //
 // Coordinates three things to produce a full GCP infrastructure plan:
 //
-//   1. claudeAnalyser.js  — AI-powered security & architecture analysis
+//   1. claudeanalyser.js  — AI-powered security & architecture analysis
 //                           reads actual file contents, not just file presence
 //
 //   2. gcpPricingClient.js — fetches real live prices from the GCP
 //                            Billing Catalog API (not hardcoded estimates)
 //
-//   3. claudeAnalyser.recommendTiers() — AI-powered tier recommendation
+//   3. claudeanalyser.recommendTiers() — AI-powered tier recommendation
 //                                        based on detected stack + user answers
 //
 // Each step has a hardcoded fallback — if the API call fails, the plan
@@ -22,7 +22,7 @@
 //   - As the fallback when live pricing cannot be fetched
 // ─────────────────────────────────────────────────────────────
 
-const { analyseRepository, recommendTiers } = require('./claudeAnalyser');
+const { analyseRepository, recommendTiers } = require('./claudeanalyser');
 const { fetchLivePricing, validateGcpProject } = require('./gcpPricingClient');
 
 // ════════════════════════════════════════════════════════════
