@@ -474,10 +474,11 @@ function buildDeploymentConfig(plannedServices, scanResult, metadata) {
   const cloudRun = plannedServices.find(s => s.productName === 'Cloud Run');
   if (cloudRun) {
     const name = deriveServiceName(scanResult);
+    const reg = config.region || 'us-central1';
     config.cloudRun = {
       serviceName: name,
-      image:       `gcr.io/\${GCP_PROJECT_ID}/${name}:\${CI_COMMIT_SHA}`,
-      region:      'us-central1',
+      image:       `${reg}-docker.pkg.dev/\${GCP_PROJECT_ID}/flowforge-ci/${name}:\${CI_COMMIT_SHA}`,
+      region:      reg,
       ...cloudRun.activeConfig,
       envVars: buildEnvVarList(metadata),
     };

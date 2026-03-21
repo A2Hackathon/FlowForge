@@ -150,8 +150,9 @@ function deployJobCloudRun(scanResult, gcpPlan, deploymentConfig) {
   const cloudRun = deploymentConfig.cloudRun || {};
   const serviceName = cloudRun.serviceName || 'app';
   const region = cloudRun.region || deploymentConfig.region || 'us-central1';
-  // Use Cloud Build so we don't need Docker on the runner
-  const imageRef = `gcr.io/${'$'}GCP_PROJECT_ID/${serviceName}:${'$'}CI_COMMIT_SHA`;
+  const garRepo = 'flowforge-ci';
+  // Artifact Registry (align with scripts/ci-write-deploy-image.js + .gitlab-ci.yml GAR_REPOSITORY)
+  const imageRef = `${region}-docker.pkg.dev/${'$'}GCP_PROJECT_ID/${garRepo}/${serviceName}:${'$'}CI_COMMIT_SHA`;
 
   return [
     'deploy:',

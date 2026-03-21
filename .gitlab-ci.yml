@@ -2,6 +2,11 @@ stages:
   - plan
   - deploy
 
+variables:
+  # Artifact Registry Docker repo (created by registry-prep if missing). Must match ci-write-deploy-image.js default.
+  GAR_REPOSITORY: flowforge-ci
+  GCP_REGION: us-central1
+
 gcp-plan:
   stage: plan
   image: node:20
@@ -21,6 +26,21 @@ gcp-plan:
       - deploy-image.txt
     expire_in: 1 day
 
+# Ensure Artifact Registry Docker repo exists (Kaniko push needs a repo or createOnPush IAM).
+registry-prep:
+  stage: deploy
+  image: google/cloud-sdk:alpine
+  needs:
+    - gcp-plan
+  script:
+    - echo "$GCP_SERVICE_ACCOUNT_KEY" | base64 -d > key.json
+    - gcloud auth activate-service-account --key-file=key.json
+    - gcloud config set project "$GCP_PROJECT_ID"
+    - gcloud artifacts repositories describe "$GAR_REPOSITORY" --location="$GCP_REGION" --format="value(name)" 2>/dev/null || gcloud artifacts repositories create "$GAR_REPOSITORY" --repository-format=docker --location="$GCP_REGION" --description="GitLab CI Docker images"
+  only:
+    - main
+    - master
+
 # Build & push with Kaniko — does NOT use gcloud builds submit / Cloud Build staging bucket.
 build-container:
   stage: deploy
@@ -30,10 +50,13 @@ build-container:
   needs:
     - job: gcp-plan
       artifacts: true
+    - job: registry-prep
   script:
     - echo "$GCP_SERVICE_ACCOUNT_KEY" | base64 -d > key.json
     - export GOOGLE_APPLICATION_CREDENTIALS=$CI_PROJECT_DIR/key.json
     - export DEST=$(cat deploy-image.txt)
+    # Pushes must target Artifact Registry (*.docker.pkg.dev). gcr.io/PROJECT/image needs legacy GCR + extra IAM.
+    - case "$DEST" in *docker.pkg.dev/*) ;; *) echo "ERROR: deploy-image.txt must use Artifact Registry (e.g. us-central1-docker.pkg.dev/PROJECT/REPO/IMAGE:TAG), not gcr.io. Ensure gcp-plan runs node scripts/ci-write-deploy-image.js from the latest main."; echo "Got: $DEST"; exit 1;; esac
     - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile Dockerfile --destination "$DEST" --verbosity=info
   only:
     - main
@@ -53,7 +76,7 @@ deploy-cloud-run:
     - gcloud config set project "$GCP_PROJECT_ID"
     - SERVICE_NAME=$(jq -r '.deploymentConfig.cloudRun.serviceName' gcp-plan.json)
     - IMAGE=$(cat deploy-image.txt)
-    - gcloud run deploy "$SERVICE_NAME" --image="$IMAGE" --region=us-central1 --platform=managed --allow-unauthenticated --project="$GCP_PROJECT_ID"
+    - gcloud run deploy "$SERVICE_NAME" --image="$IMAGE" --region="$GCP_REGION" --platform=managed --allow-unauthenticated --project="$GCP_PROJECT_ID"
   only:
     - main
     - master
