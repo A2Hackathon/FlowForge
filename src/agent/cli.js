@@ -8,6 +8,7 @@
 // usageAnswers (passed to runFlow → generateGcpPlan) from env:
 //   USERS, TEAM_SIZE, BUDGET, IS_PROD, EXPECTS_SPIKES
 // Optional: WRITE_FILES=1 or --write-files to also write gcp-plan.json + .gitlab-ci.yml
+// Optional: FLOWFORGE_LOG_GITLAB_TOKEN_META=1 logs token *lengths* only (never the secret).
 
 try {
   require('dotenv').config();
@@ -18,6 +19,7 @@ try {
 const fs = require('fs');
 const path = require('path');
 const { runFlow } = require('./runFlow');
+const { logGitlabTokenMeta } = require('../store/tokenStore');
 
 async function main() {
   const args = process.argv.slice(2).filter(a => a !== '--write-files');
@@ -49,6 +51,7 @@ async function main() {
   };
 
   try {
+    logGitlabTokenMeta();
     const { gcpPlan, pipelineYaml } = await runFlow({
       projectId,
       usageAnswers,

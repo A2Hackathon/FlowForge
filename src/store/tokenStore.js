@@ -59,10 +59,29 @@ function saveTokens(accessToken, refreshToken, expiresIn) {
 /**
  * getAccessToken
  * Returns the access token if it exists and hasn't expired, else null.
- * In CLI/CI (no Electron), uses GITLAB_TOKEN from env.
+ * In CLI/CI (no Electron): prefers a full PAT in GITLAB_TOKEN; in GitLab CI, if that
+ * value is missing or implausibly short (wrong paste / name / ID), uses CI_JOB_TOKEN
+ * so the same-project API works without a separate PAT.
  */
 function getAccessToken() {
-  if (process.env.GITLAB_TOKEN) return process.env.GITLAB_TOKEN;
+  const gitlab = process.env.GITLAB_TOKEN;
+  const jobTok = process.env.CI_JOB_TOKEN;
+
+  if (gitlab && gitlab.length >= MIN_PLAUSIBLE_PAT_LEN) {
+    return gitlab;
+  }
+
+  if (isGitLabCi() && jobTok) {
+    if (gitlab && gitlab.length < MIN_PLAUSIBLE_PAT_LEN) {
+      console.warn(
+        '[TokenStore] GITLAB_TOKEN is missing or too short to be a real PAT; using CI_JOB_TOKEN for this job. ' +
+          'Remove or fix the GITLAB_TOKEN CI/CD variable, or paste a full token (starts with glpat-).'
+      );
+    }
+    return jobTok;
+  }
+
+  if (gitlab) return gitlab;
   if (!store) return null;
   const token     = store.get('accessToken');
   const expiresAt = store.get('tokenExpiresAt');
@@ -98,4 +117,34 @@ function isLoggedIn() {
   return getAccessToken() !== null;
 }
 
-module.exports = { saveTokens, getAccessToken, getRefreshToken, clearTokens, isLoggedIn };
+/**
+ * Logs non-secret diagnostics when FLOWFORGE_LOG_GITLAB_TOKEN_META=1|true.
+ * Never prints token values (unsafe in CI logs).
+ */
+function logGitlabTokenMeta() {
+  const enabled =
+    process.env.FLOWFORGE_LOG_GITLAB_TOKEN_META === '1' ||
+    process.env.FLOWFORGE_LOG_GITLAB_TOKEN_META === 'true';
+  if (!enabled) return;
+
+  const gitlab = process.env.GITLAB_TOKEN;
+  const job = process.env.CI_JOB_TOKEN;
+  const effective = getAccessToken() || '';
+  console.error(
+    '[flow] GitLab token meta (values never logged): ' +
+      `GITLAB_TOKEN_len=${gitlab ? gitlab.length : 0}, ` +
+      `CI_JOB_TOKEN_len=${job ? job.length : 0}, ` +
+      `effective_len=${effective.length}, ` +
+      `effective_is_ci_job_token=${Boolean(job && effective === job)}, ` +
+      `GITLAB_TOKEN_starts_with_glpat=${Boolean(gitlab && gitlab.startsWith('glpat-'))}`
+  );
+}
+
+module.exports = {
+  saveTokens,
+  getAccessToken,
+  getRefreshToken,
+  clearTokens,
+  isLoggedIn,
+  logGitlabTokenMeta,
+};
