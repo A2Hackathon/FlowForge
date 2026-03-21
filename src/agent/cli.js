@@ -9,6 +9,7 @@
 //   USERS, TEAM_SIZE, BUDGET, IS_PROD, EXPECTS_SPIKES
 // Optional: WRITE_FILES=1 or --write-files to also write gcp-plan.json + .gitlab-ci.yml
 // Optional: FLOWFORGE_LOG_GITLAB_TOKEN_META=1 logs token *lengths* only (never the secret).
+// In GitLab CI with CI_JOB_TOKEN, project ID is forced to CI_PROJECT_ID (job token cannot access other projects).
 
 try {
   require('dotenv').config();
@@ -19,7 +20,7 @@ try {
 const fs = require('fs');
 const path = require('path');
 const { runFlow } = require('./runFlow');
-const { logGitlabTokenMeta } = require('../store/tokenStore');
+const { logGitlabTokenMeta, getAccessToken } = require('../store/tokenStore');
 
 async function main() {
   const args = process.argv.slice(2).filter(a => a !== '--write-files');
@@ -28,7 +29,25 @@ async function main() {
 
   const projectIdEnv = process.env.GITLAB_PROJECT_ID;
   const projectIdArg = args[0];
-  const projectId = Number(projectIdEnv || projectIdArg);
+  let projectId = Number(projectIdEnv || projectIdArg);
+
+  // CI_JOB_TOKEN is only valid for the *current* CI project. Using another ID → 404 from GitLab API.
+  const ciProjectId = process.env.CI_PROJECT_ID ? Number(process.env.CI_PROJECT_ID) : NaN;
+  const jobTok = process.env.CI_JOB_TOKEN;
+  const effectiveTok = getAccessToken();
+  if (
+    jobTok &&
+    effectiveTok === jobTok &&
+    !Number.isNaN(ciProjectId)
+  ) {
+    if (!Number.isNaN(projectId) && projectId !== ciProjectId) {
+      console.warn(
+        `[flow] Project ID ${projectId} does not match this job (CI_PROJECT_ID=${ciProjectId}). ` +
+          'CI_JOB_TOKEN can only access the current project — using CI_PROJECT_ID.'
+      );
+    }
+    projectId = ciProjectId;
+  }
 
   if (!projectId || Number.isNaN(projectId)) {
     console.error('Usage: node src/agent/cli.js <gitlabProjectId> [--write-files]');

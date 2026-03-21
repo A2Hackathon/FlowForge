@@ -35,6 +35,8 @@ try {
 /** Real GitLab PATs (glpat-...) are longer; shorter values are usually a bad CI variable. */
 const MIN_PLAUSIBLE_PAT_LEN = 20;
 
+let _warnedShortPatFallback = false;
+
 function isGitLabCi() {
   return process.env.CI === 'true' || process.env.GITLAB_CI === 'true';
 }
@@ -74,7 +76,8 @@ function getAccessToken() {
   }
 
   if (isGitLabCi() && jobTok) {
-    if (gitlab && gitlab.length < MIN_PLAUSIBLE_PAT_LEN) {
+    if (gitlab && gitlab.length < MIN_PLAUSIBLE_PAT_LEN && !_warnedShortPatFallback) {
+      _warnedShortPatFallback = true;
       console.warn(
         '[TokenStore] GITLAB_TOKEN is missing or too short to be a real PAT; using CI_JOB_TOKEN for this job. ' +
           'Remove or fix the GITLAB_TOKEN CI/CD variable, or paste a full token (starts with glpat-).'
