@@ -8,7 +8,8 @@ gcp-plan:
   before_script:
     - npm ci --omit=dev
   script:
-    - node src/agent/cli.js $CI_PROJECT_ID
+    # Without --write-files, only stdout gets JSON; artifacts require gcp-plan.json on disk.
+    - node src/agent/cli.js $CI_PROJECT_ID --write-files
   variables:
     # Project CI/CD variables (e.g. GITLAB_TOKEN) are injected automatically — do not set
     # GITLAB_TOKEN to the text "$GITLAB_TOKEN" in the UI; paste the real glpat-... secret.
@@ -21,6 +22,9 @@ gcp-plan:
 deploy-from-plan:
   stage: deploy
   image: google/cloud-sdk:alpine
+  needs:
+    - job: gcp-plan
+      artifacts: true
   script:
     - apk add jq
 
