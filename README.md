@@ -103,7 +103,10 @@ The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes
 After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipeline.js` by default**, starting a **real** GitLab pipeline on your default branch (same as a push) so **`gcp-plan` → … → `deploy-cloud-run`** can run.
 
 1. **Opt out** (if you do not want a pipeline every Duo run): **Settings → CI/CD → Variables** → **`FLOWFORGE_SKIP_PIPELINE_TRIGGER`** = **`1`**.
-2. **Auth:** **`GITLAB_TOKEN`** (PAT or project access token with **`api`**) or **`CI_JOB_TOKEN`**. If the trigger fails with **403**, add a **project access token** with **`api`** scope as **`GITLAB_TOKEN`**.
+2. **Auth (required — Duo often gets `401` with `CI_JOB_TOKEN` alone):**  
+   - **Recommended:** **Settings → CI/CD → Pipeline triggers** → **Add trigger** → copy the token → add CI/CD variable **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** (masked). This is what `trigger-pipeline.js` tries first.  
+   - **Alternative:** **Settings → Access tokens** → project token with **`api`** scope → **`GITLAB_TOKEN`**.  
+   - `CI_JOB_TOKEN` alone often **cannot** call `POST /projects/:id/pipeline` → **401 Unauthorized**.
 3. **Branch:** optional **`FLOWFORGE_DEPLOY_REF`** (defaults to **`CI_DEFAULT_BRANCH`** or **`main`**).
 
 **Important:** The **assistant chat text** (“deployment approved”, etc.) is **not** the deploy. Look in the **Duo workload job log** for **`=== FlowForge: post-CLI pipeline trigger ===`** and **`Pipeline triggered:`** from `trigger-pipeline.js`, and in **CI/CD → Pipelines** for a new run. If you use a **GitLab AI Catalog** agent (`ai_catalog_agent` in logs), its replies are separate from this script — change that flow’s prompt or use this repo’s FlowForge flow YAML.

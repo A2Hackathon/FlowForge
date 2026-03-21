@@ -14,7 +14,7 @@ setup_script:
   - node src/agent/cli.js "${CI_PROJECT_ID}" --write-files
   # Trigger the project CI pipeline (plan → deploy to GCP) after the plan is written — same as a push to main.
   # Runs by default. Opt out: CI/CD variable FLOWFORGE_SKIP_PIPELINE_TRIGGER=1
-  # Auth: GITLAB_TOKEN (PAT / project token) or CI_JOB_TOKEN. Optional branch: FLOWFORGE_DEPLOY_REF or CI_DEFAULT_BRANCH.
+  # Auth: set FLOWFORGE_GITLAB_TRIGGER_TOKEN (Pipeline trigger token) or GITLAB_TOKEN (api). CI_JOB_TOKEN alone often 401s.
   - |
     echo "=== FlowForge: post-CLI pipeline trigger ==="
     if [ "${FLOWFORGE_SKIP_PIPELINE_TRIGGER:-}" = "1" ] || [ "${FLOWFORGE_SKIP_PIPELINE_TRIGGER:-}" = "true" ]; then
