@@ -41,6 +41,13 @@ function isGitLabCi() {
   return process.env.CI === 'true' || process.env.GITLAB_CI === 'true';
 }
 
+/** User pasted the variable *name* into the Value field — not a real PAT. */
+function isLiteralVariableNamePlaceholder(s) {
+  if (!s || typeof s !== 'string') return false;
+  const t = s.trim();
+  return t === '$GITLAB_TOKEN' || t === '${GITLAB_TOKEN}' || t === '{{GITLAB_TOKEN}}';
+}
+
 // ════════════════════════════════════════════════════════════
 // GitLab OAuth tokens
 // ════════════════════════════════════════════════════════════
@@ -70,8 +77,20 @@ function saveTokens(accessToken, refreshToken, expiresIn) {
 function getAccessToken() {
   // Trim: GitLab CI variable values often pick up stray spaces/newlines when pasted.
   const rawGitlab = process.env.GITLAB_TOKEN;
-  const gitlab = typeof rawGitlab === 'string' ? rawGitlab.trim() : rawGitlab;
+  let gitlab = typeof rawGitlab === 'string' ? rawGitlab.trim() : rawGitlab;
   const jobTok = process.env.CI_JOB_TOKEN;
+
+  if (isLiteralVariableNamePlaceholder(gitlab)) {
+    if (!_warnedShortPatFallback) {
+      _warnedShortPatFallback = true;
+      console.warn(
+        '[TokenStore] GITLAB_TOKEN is set to the literal text "$GITLAB_TOKEN" — that is NOT expanded by GitLab. ' +
+          'Edit CI/CD → Variables → GITLAB_TOKEN and paste the real PAT (glpat-...) in the Value field. ' +
+          'Using CI_JOB_TOKEN for this job.'
+      );
+    }
+    gitlab = undefined;
+  }
 
   if (gitlab && gitlab.length >= MIN_PLAUSIBLE_PAT_LEN) {
     return gitlab;
@@ -148,10 +167,12 @@ function logGitlabTokenMeta() {
   const effective = getAccessToken() || '';
   const usesJob = Boolean(job && effective === job);
 
+  const isPlaceholder = isLiteralVariableNamePlaceholder(gitlab);
   console.error(
     '[flow] GitLab token meta (raw secrets never printed; compare sha256 locally): ' +
       `GITLAB_TOKEN_len=${gitlab ? gitlab.length : 0}, ` +
-      `GITLAB_TOKEN_sha256_16=${(gitlab)}, ` +
+      `GITLAB_TOKEN_sha256_16=${sha256Prefix16(gitlab)}, ` +
+      `GITLAB_TOKEN_is_literal_dollar_placeholder=${isPlaceholder}, ` +
       `CI_JOB_TOKEN_len=${job ? job.length : 0}, ` +
       `effective_len=${effective.length}, ` +
       `effective_sha256_16=${sha256Prefix16(effective)}, ` +
@@ -161,8 +182,10 @@ function logGitlabTokenMeta() {
   if (usesJob) {
     console.error(
       '[flow] GitLab auth: API calls use **CI_JOB_TOKEN** (same-project job token). ' +
-        'Your CI/CD variable GITLAB_TOKEN is not a valid PAT (wrong length or wrong value); it is ignored. ' +
-        'To use a PAT instead: delete the bad GITLAB_TOKEN variable or paste a full token starting with glpat-.'
+        (isPlaceholder
+          ? 'Fix: CI/CD variable GITLAB_TOKEN must be the actual glpat-... string, not the text "$GITLAB_TOKEN".'
+          : 'Your CI/CD variable GITLAB_TOKEN is not a valid PAT (wrong length or wrong value); it is ignored. ' +
+            'To use a PAT instead: delete the bad GITLAB_TOKEN variable or paste a full token starting with glpat-.')
     );
   }
 }

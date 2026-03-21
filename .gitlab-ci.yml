@@ -10,8 +10,8 @@ gcp-plan:
   script:
     - node src/agent/cli.js $CI_PROJECT_ID
   variables:
-    # Optional: full PAT (glpat-...) with read_api. If unset or too short, CI_JOB_TOKEN is used.
-    GITLAB_TOKEN: $GITLAB_TOKEN
+    # Project CI/CD variables (e.g. GITLAB_TOKEN) are injected automatically — do not set
+    # GITLAB_TOKEN to the text "$GITLAB_TOKEN" in the UI; paste the real glpat-... secret.
     GITLAB_PROJECT_ID: $CI_PROJECT_ID
   artifacts:
     paths:
