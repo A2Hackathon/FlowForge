@@ -159,3 +159,18 @@ You can tweak the generator for your stack:
 5. Download the `gcp-plan.json` artifact or read the job log if you used `tee`.
 
 The plan is generated for the current project (`CI_PROJECT_ID`). You can use the same `.gitlab/duo/agent-config.yml` setup_script in a regular CI job if you prefer not to use Duo.
+
+### GCP APIs for `deploy-from-plan` (Cloud Build + Cloud Run)
+
+Enable these for your GCP project (links use your project id from the console):
+
+| API | Purpose |
+|-----|--------|
+| **Cloud Resource Manager** | `cloudresourcemanager.googleapis.com` — required before many other APIs work |
+| **Cloud Build** | `cloudbuild.googleapis.com` — `gcloud builds submit` |
+| **Artifact Registry** or **Container Registry** | Image storage (`gcr.io/...` uses GCR; consider migrating to Artifact Registry) |
+| **Cloud Run** | `run.googleapis.com` — deploy |
+
+If you see *“Cloud Resource Manager API has not been used”*, open the link in the error, click **Enable**, wait a few minutes, and rerun the pipeline.
+
+The repo includes a root **`Dockerfile`** that builds the **Vite frontend** and serves it with `serve` on **`PORT`** (required for Cloud Run). Without a Dockerfile, `gcloud builds submit --tag` fails.
