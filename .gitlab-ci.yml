@@ -56,7 +56,8 @@ build-container:
     - export GOOGLE_APPLICATION_CREDENTIALS=$CI_PROJECT_DIR/key.json
     - export DEST=$(cat deploy-image.txt)
     # Pushes must target Artifact Registry (*.docker.pkg.dev). gcr.io/PROJECT/image needs legacy GCR + extra IAM.
-    - case "$DEST" in *docker.pkg.dev/*) ;; *) echo "ERROR: deploy-image.txt must use Artifact Registry (e.g. us-central1-docker.pkg.dev/PROJECT/REPO/IMAGE:TAG), not gcr.io. Ensure gcp-plan runs node scripts/ci-write-deploy-image.js from the latest main."; echo "Got: $DEST"; exit 1;; esac
+    # Entire line is YAML single-quoted so "KEY: value" patterns inside shell strings do not break YAML parsing.
+    - 'case "$DEST" in *docker.pkg.dev/*) ;; *) echo "ERROR — deploy-image.txt must use Artifact Registry (docker.pkg.dev not gcr.io). Run gcp-plan with scripts/ci-write-deploy-image.js from latest main."; echo "Got $DEST"; exit 1;; esac'
     - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile Dockerfile --destination "$DEST" --verbosity=info
   only:
     - main
