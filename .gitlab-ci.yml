@@ -12,12 +12,8 @@ gcp-plan:
     - node src/agent/cli.js $CI_PROJECT_ID --write-files
     # Full image URL for Kaniko (avoids Cloud Build's *_cloudbuild bucket / IAM issues).
     - test -n "$GCP_PROJECT_ID" || (echo "ERROR: Set CI/CD variable GCP_PROJECT_ID to your GCP project id" && exit 1)
-    - >-
-      node -e "const fs=require('fs');
-      const j=JSON.parse(fs.readFileSync('gcp-plan.json','utf8'));
-      const tag='gcr.io/'+process.env.GCP_PROJECT_ID+'/'+j.deploymentConfig.serviceName+':'+process.env.CI_COMMIT_SHA;
-      fs.writeFileSync('deploy-image.txt', tag);
-      console.log('Image:', tag);"
+    # Single-line node -e (multiline YAML block scalars here can break GitLab's script schema validation)
+    - node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('gcp-plan.json','utf8'));const tag='gcr.io/'+process.env.GCP_PROJECT_ID+'/'+j.deploymentConfig.serviceName+':'+process.env.CI_COMMIT_SHA;fs.writeFileSync('deploy-image.txt', tag);console.log('Image:', tag);"
   variables:
     # Project CI/CD variables (e.g. GITLAB_TOKEN) are injected automatically — do not set
     # GITLAB_TOKEN to the text "$GITLAB_TOKEN" in the UI; paste the real glpat-... secret.
