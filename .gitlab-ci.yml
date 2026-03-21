@@ -10,6 +10,14 @@ gcp-plan:
   script:
     # Without --write-files, only stdout gets JSON; artifacts require gcp-plan.json on disk.
     - node src/agent/cli.js $CI_PROJECT_ID --write-files
+    # Full image URL for Kaniko (avoids Cloud Build's *_cloudbuild bucket / IAM issues).
+    - test -n "$GCP_PROJECT_ID" || (echo "ERROR: Set CI/CD variable GCP_PROJECT_ID to your GCP project id" && exit 1)
+    - >-
+      node -e "const fs=require('fs');
+      const j=JSON.parse(fs.readFileSync('gcp-plan.json','utf8'));
+      const tag='gcr.io/'+process.env.GCP_PROJECT_ID+'/'+j.deploymentConfig.serviceName+':'+process.env.CI_COMMIT_SHA;
+      fs.writeFileSync('deploy-image.txt', tag);
+      console.log('Image:', tag);"
   variables:
     # Project CI/CD variables (e.g. GITLAB_TOKEN) are injected automatically — do not set
     # GITLAB_TOKEN to the text "$GITLAB_TOKEN" in the UI; paste the real glpat-... secret.
@@ -17,33 +25,42 @@ gcp-plan:
   artifacts:
     paths:
       - gcp-plan.json
+      - deploy-image.txt
     expire_in: 1 day
 
-deploy-from-plan:
+# Build & push with Kaniko — does NOT use gcloud builds submit / Cloud Build staging bucket.
+build-container:
+  stage: deploy
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  needs:
+    - job: gcp-plan
+      artifacts: true
+  script:
+    - echo "$GCP_SERVICE_ACCOUNT_KEY" | base64 -d > key.json
+    - export GOOGLE_APPLICATION_CREDENTIALS=$CI_PROJECT_DIR/key.json
+    - export DEST=$(cat deploy-image.txt)
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile Dockerfile --destination "$DEST" --verbosity=info
+  only:
+    - main
+    - master
+
+deploy-cloud-run:
   stage: deploy
   image: google/cloud-sdk:alpine
   needs:
     - job: gcp-plan
       artifacts: true
+    - job: build-container
   script:
     - apk add jq
-
     - echo "$GCP_SERVICE_ACCOUNT_KEY" | base64 -d > key.json
     - gcloud auth activate-service-account --key-file=key.json
-    - gcloud config set project $GCP_PROJECT_ID
-
+    - gcloud config set project "$GCP_PROJECT_ID"
     - SERVICE_NAME=$(jq -r '.deploymentConfig.serviceName' gcp-plan.json)
-    - IMAGE="gcr.io/$GCP_PROJECT_ID/$SERVICE_NAME:$CI_COMMIT_SHA"
-
-    - gcloud builds submit --tag $IMAGE .
-
-    - gcloud run deploy $SERVICE_NAME \
-        --image=$IMAGE \
-        --region=us-central1 \
-        --platform=managed \
-        --allow-unauthenticated
+    - IMAGE=$(cat deploy-image.txt)
+    - gcloud run deploy "$SERVICE_NAME" --image="$IMAGE" --region=us-central1 --platform=managed --allow-unauthenticated --project="$GCP_PROJECT_ID"
   only:
     - main
     - master
-
-    

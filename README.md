@@ -174,3 +174,5 @@ Enable these for your GCP project (links use your project id from the console):
 If you see *“Cloud Resource Manager API has not been used”*, open the link in the error, click **Enable**, wait a few minutes, and rerun the pipeline.
 
 The repo includes a root **`Dockerfile`** that builds the **Vite frontend** and serves it with `serve` on **`PORT`** (required for Cloud Run). Without a Dockerfile, `gcloud builds submit --tag` fails.
+
+If **`gcloud builds submit`** fails with **forbidden … \_cloudbuild** bucket or **serviceusage.services.use**, the deploy service account needs more IAM roles — see **`docs/GCP_DEPLOY_IAM.md`**.

@@ -164,7 +164,7 @@ function deployJobCloudRun(scanResult, gcpPlan, deploymentConfig) {
     '    - echo "$GCP_SERVICE_ACCOUNT_KEY" | base64 -d > key.json',
     '    - gcloud auth activate-service-account --key-file=key.json',
     '    - gcloud config set project $GCP_PROJECT_ID',
-    `    - gcloud builds submit --tag ${imageRef} .`,
+    `    - gcloud builds submit --tag ${imageRef} . --async`,
     `    - gcloud run deploy ${serviceName} --image=${imageRef} --region=${region} --platform=managed --allow-unauthenticated`,
     '  only:',
     '    - main',
