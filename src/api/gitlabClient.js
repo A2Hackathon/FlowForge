@@ -23,17 +23,8 @@ const { refreshAccessToken }              = require('../auth/gitlabAuth');
 
 const GITLAB_URL = process.env.GITLAB_URL || 'https://gitlab.com';
 
-// #region agent log
-/** @param {'H1'|'H2'|'H3'|'H4'|'H5'} hypothesisId */
-function dbgGitlab(hypothesisId, message, data) {
-  const payload = { sessionId: '234210', hypothesisId, message, data, timestamp: Date.now() };
-  fetch('http://127.0.0.1:7839/ingest/873c42cd-7d91-4101-98ff-ada0c09060f7', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '234210' },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
-  console.error(`DEBUG_FLOWFORGE:${JSON.stringify(payload)}`);
-}
+/** GitLab PATs (glpat-...) are much longer; short values are almost always a mis-pasted CI variable. */
+const MIN_PLAUSIBLE_PAT_LENGTH = 20;
 
 function gitlab401UserMessage(error) {
   const data = error.response?.data;
@@ -45,7 +36,16 @@ function gitlab401UserMessage(error) {
   }
   return null;
 }
-// #endregion
+
+function shortTokenHint(token) {
+  if (!token) return '';
+  if (process.env.CI_JOB_TOKEN && token === process.env.CI_JOB_TOKEN) return '';
+  if (token.length >= MIN_PLAUSIBLE_PAT_LENGTH) return '';
+  return (
+    ` GITLAB_TOKEN length is ${token.length} (too short). ` +
+    'Paste the full Personal Access Token from GitLab → Edit profile → Access Tokens (or use a Project Access Token); it should start with glpat- and be much longer.'
+  );
+}
 
 // ── Axios instance ────────────────────────────────────────────
 // baseURL means we only have to write '/user' instead of
@@ -59,7 +59,6 @@ const apiClient = axios.create({
 // Runs before EVERY outgoing request.
 // Automatically attaches 'Authorization: Bearer <token>' so
 // we never forget it on any API call.
-let _dbgRequestLogged = false;
 apiClient.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) {
@@ -70,19 +69,6 @@ apiClient.interceptors.request.use((config) => {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
   }
-  // #region agent log
-  if (!_dbgRequestLogged) {
-    _dbgRequestLogged = true;
-    dbgGitlab('H1', 'first_gitlab_request', {
-      tokenPresent: !!token,
-      tokenLength: token ? token.length : 0,
-      envGitlabTokenDefined: typeof process.env.GITLAB_TOKEN === 'string' && process.env.GITLAB_TOKEN.length > 0,
-      usesJobTokenHeader: !!(process.env.CI_JOB_TOKEN && token === process.env.CI_JOB_TOKEN),
-      gitlabUrl: GITLAB_URL,
-      requestPath: config.url,
-    });
-  }
-  // #endregion
   return config;
 });
 
@@ -101,21 +87,14 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
 
       const refreshToken = getRefreshToken();
-      // #region agent log
-      dbgGitlab('H3', 'gitlab_401', {
-        hasRefreshToken: !!refreshToken,
-        url: originalRequest?.url,
-        baseURL: originalRequest?.baseURL,
-        gitlabMessage: gitlab401UserMessage(error),
-      });
-      // #endregion
 
       // CI / CLI: no OAuth refresh token — do not call refresh; surface GitLab's 401 reason.
       if (!refreshToken) {
         const detail = gitlab401UserMessage(error);
+        const hint = shortTokenHint(getAccessToken());
         const msg = detail
-          ? `GitLab API unauthorized: ${detail}`
-          : 'GitLab API unauthorized (401). Check GITLAB_TOKEN and GITLAB_URL.';
+          ? `GitLab API unauthorized: ${detail}.${hint}`
+          : `GitLab API unauthorized (401). Check GITLAB_TOKEN and GITLAB_URL.${hint}`;
         return Promise.reject(new Error(msg));
       }
 
@@ -124,9 +103,6 @@ apiClient.interceptors.response.use(
         originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
         return apiClient(originalRequest);   // Retry with new token
       } catch (refreshErr) {
-        // #region agent log
-        dbgGitlab('H5', 'oauth_refresh_failed', { message: refreshErr?.message || String(refreshErr) });
-        // #endregion
         return Promise.reject(new Error('Session expired. Please log in again.'));
       }
     }

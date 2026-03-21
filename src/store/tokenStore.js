@@ -7,7 +7,8 @@
 // .env file loaded at startup — no UI, no database, no electron-store
 // fields for them.
 //
-// For CLI/CI (no Electron): set GITLAB_TOKEN in env; getAccessToken() returns it.
+// For CLI/CI (no Electron): set GITLAB_TOKEN (full glpat-... PAT), or rely on
+// CI_JOB_TOKEN in GitLab CI when GITLAB_TOKEN is missing / too short (see getAccessToken).
 //
 // electron-store writes to:
 //   Windows : %APPDATA%/cloudmapper/config.json
@@ -27,6 +28,13 @@ try {
   });
 } catch (err) {
   // Not in Electron (e.g. CLI / CI); use GITLAB_TOKEN from env only
+}
+
+/** Real GitLab PATs (glpat-...) are longer; shorter values are usually a bad CI variable. */
+const MIN_PLAUSIBLE_PAT_LEN = 20;
+
+function isGitLabCi() {
+  return process.env.CI === 'true' || process.env.GITLAB_CI === 'true';
 }
 
 // ════════════════════════════════════════════════════════════
