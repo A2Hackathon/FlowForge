@@ -7,6 +7,7 @@ gcp-plan:
   image: node:20
   before_script:
     - npm ci --omit=dev
+    - test -n "$GITLAB_TOKEN" && echo "GITLAB_TOKEN is set" || echo "GITLAB_TOKEN is EMPTY"
   script:
     - node src/agent/cli.js $CI_PROJECT_ID
   variables:
