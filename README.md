@@ -96,7 +96,38 @@ The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes
    `node src/agent/cli.js "${CI_PROJECT_ID}" --write-files`  
    so the workspace gets `gcp-plan.json` and `.gitlab-ci.yml`. `GITLAB_TOKEN` and `CI_PROJECT_ID` are provided by the Duo pipeline.
 3. **Agent:** the flow uses a summarizer component that reads those files and returns a concise summary of the GCP plan (cost, performance, security) and the suggested GitLab CI pipeline (build → test → deploy).
-4. Optional: you can add an "ask usage" step (e.g. expected users, budget) before the CLI runs, or a "trigger pipeline" step that runs `scripts/trigger-pipeline.js` after the summary.
+4. After the CLI, the workload can **optionally trigger** the same GitLab pipeline as a push (see **Deploy after Duo** below).
+
+### Deploy to GCP after Duo (optional)
+
+To **run your real deploy pipeline** (`gcp-plan` → … → `deploy-cloud-run`) whenever a Duo flow finishes the workload (not only on git push):
+
+1. In the project (or group): **Settings → CI/CD → Variables**, add **`FLOWFORGE_TRIGGER_PIPELINE`** = **`1`** (masked not required).
+2. Ensure **`GITLAB_TOKEN`** is available to the Duo workload (often already injected) **or** rely on **`CI_JOB_TOKEN`** — `scripts/trigger-pipeline.js` uses `PRIVATE-TOKEN` / `JOB-TOKEN` automatically.
+3. Optional: **`FLOWFORGE_DEPLOY_REF`** = branch to run (default: **`CI_DEFAULT_BRANCH`** or **`main`**).
+
+When enabled, **`.gitlab/duo/agent-config.yml`** runs `node scripts/trigger-pipeline.js` after `cli.js --write-files`, which **starts a new pipeline** on that ref — the same jobs as if you had pushed. **Every Duo trigger can deploy** (cost + time); unset the variable or set it to `0` to disable.
+
+### Duo chat text does **not** mean GCP deploy (unless a pipeline actually ran)
+
+- **Duo / agent replies are text only.** Phrases like “deployment approved” from an **LLM** are **not** proof that anything ran in your project.
+- **Actual deploy** runs when **GitLab CI** executes **`build-container`** + **`deploy-cloud-run`** — after a **push**, a **manual pipeline**, or **API trigger** (`scripts/trigger-pipeline.js`, including the optional Duo step above).
+- The Duo flow’s **workflow finished successfully** means the **agent workload** completed; Cloud Run updates only if a **project pipeline** with deploy jobs succeeded.
+- If you use a **GitLab AI Catalog** flow (`ai_catalog_agent`), align prompts with this repo’s FlowForge YAML so the model does not claim deployment.
+
+### Duo workload vs push pipeline (why you see “Build” vs `plan` → `deploy`)
+
+These are **two different pipelines**:
+
+| | **Push / branch CI** | **Duo issue / MR flow** |
+|---|----------------------|-------------------------|
+| **Config** | Root **`.gitlab-ci.yml`** on the branch you pushed | **`.gitlab/duo/agent-config.yml`** + the flow YAML (workload **setup_script**) |
+| **Stages you see** | **`plan`** then **`deploy`** (`gcp-plan`, `registry-prep`, `build-container`, `deploy-cloud-run`) | GitLab’s **agent workload** pipeline — the UI often shows a **`build`** (or similar) stage **first**, where the workload image is prepared and **`setup_script`** runs. That is **not** the same “build” as a job in your project’s `.gitlab-ci.yml`. |
+| **Work done** | Mostly `gcp-plan` + image build + deploy | **`npm ci`** (root + retriever), **full repo index**, **retrieve**, then **`cli.js --write-files`** (GitLab API scan + GCP plan + optional Claude). This can take **much longer** than a single `gcp-plan` job. |
+
+The **`.gitlab-ci.yml` written by `--write-files`** is a **suggested** template with stages **`build` → `test` → `deploy`** (`src/agent/pipelineGenerator.js`). It is **saved to the workspace** for the agent to read; it does **not** replace the committed pipeline until you merge it. It also does **not** control how GitLab labels Duo workload stages.
+
+**If Duo looks “stuck” on Build:** open the **workload job log** for that run — time is usually spent on `npm ci`, `tools/retriever` index/retrieve, or `cli.js` (large repo tree + many API calls + `generateGcpPlan`). Ensure **`GITLAB_TOKEN`**, **`CI_PROJECT_ID`**, and **`ANTHROPIC_API_KEY`** (if required) are available to the Duo workload, and check **job timeout** settings for long-running flows.
 
 ---
 

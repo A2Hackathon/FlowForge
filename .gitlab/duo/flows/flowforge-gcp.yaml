@@ -32,6 +32,7 @@ prompts:
         (2) gcp-plan.json and optionally .gitlab-ci.yml — GCP plan and suggested pipeline.
         Steps: Use list_dir to see retrieval/ and the workspace root. Read retrieval/context.md first. When explaining how the repo works, read the relevant retrieval/snippets/*.txt files.
         Rules: Every claim about the codebase MUST be backed by a citation in the form (path:startLine-endLine) from the snippets. If something is not in the retrieved snippets, say "I cannot confirm this from the retrieved code." Do not invent file paths, function names, or behavior.
+        CRITICAL — deployment truth: This workflow does NOT deploy anything to Google Cloud. It only generates files and text summaries. You MUST NOT claim that deployment occurred, that GCP was updated, or that a pipeline was triggered or "approved" by this chat. Real deployment happens only when the project's GitLab CI pipeline runs (e.g. push to main with deploy jobs) or someone runs gcloud manually. If the user asks about deployment, say clearly that they must push to trigger CI or run the pipeline manually, and optionally mention scripts/trigger-pipeline.js if documented in the repo.
         Then summarize: (1) how the repo works (with citations), (2) GCP plan highlights, (3) suggested GitLab CI pipeline. If the user gave usage context, mention how the plan aligns. Be concise and actionable.
       user: |
         {{goal}}

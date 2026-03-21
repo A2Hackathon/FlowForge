@@ -12,6 +12,17 @@ setup_script:
   - node tools/retriever/index.js retrieve --repo . --index retrieval/index.json --query "${GOAL:-Summarize this repo and how auth and deployment work}" --out retrieval
   # GITLAB_TOKEN and CI_PROJECT_ID are provided by the Duo workload pipeline.
   - node src/agent/cli.js "${CI_PROJECT_ID}" --write-files
+  # Trigger the project CI pipeline (plan → deploy to GCP) after the plan is written — same as a push to main.
+  # Enable with CI/CD variable FLOWFORGE_TRIGGER_PIPELINE=1 (recommended). Uses GITLAB_TOKEN or CI_JOB_TOKEN.
+  # Optional: FLOWFORGE_DEPLOY_REF=main (default) or another branch name.
+  - |
+    if [ "${FLOWFORGE_TRIGGER_PIPELINE:-}" = "1" ] || [ "${FLOWFORGE_TRIGGER_PIPELINE:-}" = "true" ]; then
+      echo "FLOWFORGE_TRIGGER_PIPELINE set — triggering GitLab pipeline for deploy..."
+      REF="${FLOWFORGE_DEPLOY_REF:-${CI_DEFAULT_BRANCH:-main}}"
+      node scripts/trigger-pipeline.js "${CI_PROJECT_ID}" "$REF"
+    else
+      echo "Skipping pipeline trigger. Set CI/CD variable FLOWFORGE_TRIGGER_PIPELINE=1 to deploy to GCP after each Duo run."
+    fi
 
 cache:
   paths:
