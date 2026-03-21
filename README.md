@@ -98,15 +98,15 @@ The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes
 3. **Agent:** the flow uses a summarizer component that reads those files and returns a concise summary of the GCP plan (cost, performance, security) and the suggested GitLab CI pipeline (build → test → deploy).
 4. After the CLI, the workload can **optionally trigger** the same GitLab pipeline as a push (see **Deploy after Duo** below).
 
-### Deploy to GCP after Duo (optional)
+### Deploy to GCP after Duo
 
-To **run your real deploy pipeline** (`gcp-plan` → … → `deploy-cloud-run`) whenever a Duo flow finishes the workload (not only on git push):
+After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipeline.js` by default**, starting a **real** GitLab pipeline on your default branch (same as a push) so **`gcp-plan` → … → `deploy-cloud-run`** can run.
 
-1. In the project (or group): **Settings → CI/CD → Variables**, add **`FLOWFORGE_TRIGGER_PIPELINE`** = **`1`** (masked not required).
-2. Ensure **`GITLAB_TOKEN`** is available to the Duo workload (often already injected) **or** rely on **`CI_JOB_TOKEN`** — `scripts/trigger-pipeline.js` uses `PRIVATE-TOKEN` / `JOB-TOKEN` automatically.
-3. Optional: **`FLOWFORGE_DEPLOY_REF`** = branch to run (default: **`CI_DEFAULT_BRANCH`** or **`main`**).
+1. **Opt out** (if you do not want a pipeline every Duo run): **Settings → CI/CD → Variables** → **`FLOWFORGE_SKIP_PIPELINE_TRIGGER`** = **`1`**.
+2. **Auth:** **`GITLAB_TOKEN`** (PAT or project access token with **`api`**) or **`CI_JOB_TOKEN`**. If the trigger fails with **403**, add a **project access token** with **`api`** scope as **`GITLAB_TOKEN`**.
+3. **Branch:** optional **`FLOWFORGE_DEPLOY_REF`** (defaults to **`CI_DEFAULT_BRANCH`** or **`main`**).
 
-When enabled, **`.gitlab/duo/agent-config.yml`** runs `node scripts/trigger-pipeline.js` after `cli.js --write-files`, which **starts a new pipeline** on that ref — the same jobs as if you had pushed. **Every Duo trigger can deploy** (cost + time); unset the variable or set it to `0` to disable.
+**Important:** The **assistant chat text** (“deployment approved”, etc.) is **not** the deploy. Look in the **Duo workload job log** for **`=== FlowForge: post-CLI pipeline trigger ===`** and **`Pipeline triggered:`** from `trigger-pipeline.js`, and in **CI/CD → Pipelines** for a new run. If you use a **GitLab AI Catalog** agent (`ai_catalog_agent` in logs), its replies are separate from this script — change that flow’s prompt or use this repo’s FlowForge flow YAML.
 
 ### Duo chat text does **not** mean GCP deploy (unless a pipeline actually ran)
 
