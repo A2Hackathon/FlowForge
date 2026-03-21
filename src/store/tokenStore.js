@@ -16,6 +16,8 @@
 //   Linux   : ~/.config/cloudmapper/config.json
 // ─────────────────────────────────────────────────────────────
 
+const crypto = require('crypto');
+
 let store = null;
 try {
   const Store = require('electron-store');
@@ -119,7 +121,15 @@ function isLoggedIn() {
 
 /**
  * Logs non-secret diagnostics when FLOWFORGE_LOG_GITLAB_TOKEN_META=1|true.
- * Never prints token values (unsafe in CI logs).
+ * Never prints raw token values (they would leak in CI logs). Use SHA-256 prefix to compare locally.
+ */
+function sha256Prefix16(value) {
+  if (!value) return '(empty)';
+  return crypto.createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+}
+
+/**
+ * Logs non-secret diagnostics when FLOWFORGE_LOG_GITLAB_TOKEN_META=1|true.
  */
 function logGitlabTokenMeta() {
   const enabled =
@@ -130,14 +140,25 @@ function logGitlabTokenMeta() {
   const gitlab = process.env.GITLAB_TOKEN;
   const job = process.env.CI_JOB_TOKEN;
   const effective = getAccessToken() || '';
+  const usesJob = Boolean(job && effective === job);
+
   console.error(
-    '[flow] GitLab token meta (values never logged): ' +
+    '[flow] GitLab token meta (raw secrets never printed; compare sha256 locally): ' +
       `GITLAB_TOKEN_len=${gitlab ? gitlab.length : 0}, ` +
+      `GITLAB_TOKEN_sha256_16=${sha256Prefix16(gitlab)}, ` +
       `CI_JOB_TOKEN_len=${job ? job.length : 0}, ` +
       `effective_len=${effective.length}, ` +
-      `effective_is_ci_job_token=${Boolean(job && effective === job)}, ` +
+      `effective_sha256_16=${sha256Prefix16(effective)}, ` +
+      `effective_is_ci_job_token=${usesJob}, ` +
       `GITLAB_TOKEN_starts_with_glpat=${Boolean(gitlab && gitlab.startsWith('glpat-'))}`
   );
+  if (usesJob) {
+    console.error(
+      '[flow] GitLab auth: API calls use **CI_JOB_TOKEN** (same-project job token). ' +
+        'Your CI/CD variable GITLAB_TOKEN is not a valid PAT (wrong length or wrong value); it is ignored. ' +
+        'To use a PAT instead: delete the bad GITLAB_TOKEN variable or paste a full token starting with glpat-.'
+    );
+  }
 }
 
 module.exports = {
