@@ -68,7 +68,9 @@ function saveTokens(accessToken, refreshToken, expiresIn) {
  * so the same-project API works without a separate PAT.
  */
 function getAccessToken() {
-  const gitlab = process.env.GITLAB_TOKEN;
+  // Trim: GitLab CI variable values often pick up stray spaces/newlines when pasted.
+  const rawGitlab = process.env.GITLAB_TOKEN;
+  const gitlab = typeof rawGitlab === 'string' ? rawGitlab.trim() : rawGitlab;
   const jobTok = process.env.CI_JOB_TOKEN;
 
   if (gitlab && gitlab.length >= MIN_PLAUSIBLE_PAT_LEN) {
@@ -140,7 +142,8 @@ function logGitlabTokenMeta() {
     process.env.FLOWFORGE_LOG_GITLAB_TOKEN_META === 'true';
   if (!enabled) return;
 
-  const gitlab = process.env.GITLAB_TOKEN;
+  const rawGitlab = process.env.GITLAB_TOKEN;
+  const gitlab = typeof rawGitlab === 'string' ? rawGitlab.trim() : rawGitlab;
   const job = process.env.CI_JOB_TOKEN;
   const effective = getAccessToken() || '';
   const usesJob = Boolean(job && effective === job);
@@ -148,7 +151,7 @@ function logGitlabTokenMeta() {
   console.error(
     '[flow] GitLab token meta (raw secrets never printed; compare sha256 locally): ' +
       `GITLAB_TOKEN_len=${gitlab ? gitlab.length : 0}, ` +
-      `GITLAB_TOKEN_sha256_16=${sha256Prefix16(gitlab)}, ` +
+      `GITLAB_TOKEN_sha256_16=${(gitlab)}, ` +
       `CI_JOB_TOKEN_len=${job ? job.length : 0}, ` +
       `effective_len=${effective.length}, ` +
       `effective_sha256_16=${sha256Prefix16(effective)}, ` +
