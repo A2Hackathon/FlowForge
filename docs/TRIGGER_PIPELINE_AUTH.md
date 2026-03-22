@@ -24,6 +24,12 @@ GitLab Duo still **injects** a **`GITLAB_TOKEN`** for agents; that is **not** yo
 
 If **`NOT visible`**, the variable is missing in that job: wrong project, **Protected** variable on an unprotected branch, or **environment scope** mismatch.
 
+### Don’t see `[flowforge] CI env visibility` at all?
+
+The Duo workload job checks out a **specific commit** (often `refs/workloads/...` → detached HEAD). If that commit is **older** than the FlowForge files that add the shell + `curl` block, you will **not** see those lines — you may see only `apk add ... git` (no **`curl`**), the old banner `=== FlowForge: post-CLI pipeline trigger ===` (without **`(shell + curl)`**), and **`[trigger-pipeline] auth: PRIVATE-TOKEN from GITLAB_TOKEN`** from an older `scripts/trigger-pipeline.js`.
+
+**Fix:** Merge/push the latest **`.gitlab/duo/agent-config.yml`** and **`scripts/trigger-pipeline.js`** to the branch Duo uses (e.g. **`main`**), then **re-run the Duo flow** so the new workload uses a **newer SHA**. In the job log, confirm **`git curl`** in the `apk add` line and the **`(shell + curl)`** banner before trusting env visibility output.
+
 ---
 
 ## `scripts/trigger-pipeline.js` (fallback / local)
