@@ -106,10 +106,11 @@ After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipel
 2. **Auth (required — Duo often gets `401`):**  
    - **Recommended:** **Settings → CI/CD → Pipeline triggers** → **Add trigger** → copy the **`glptt-...`** token → CI/CD variable **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** (masked).  
    - **Alternative (Project access token):** **Settings → Access tokens** → create token with **`api`** → copy the **`glpat-...`** secret once → CI/CD variable **`FLOWFORGE_GITLAB_API_TOKEN`** (masked).  
-   - **Do not** rely on **`GITLAB_TOKEN`** for this in Duo: GitLab Duo **injects its own `GITLAB_TOKEN`** for the agent, which **overrides** your project variable — `trigger-pipeline.js` then uses the wrong token and gets **401**. Use **`FLOWFORGE_GITLAB_API_TOKEN`** for your project token.  
+   - **Do not** rely on **`GITLAB_TOKEN`** in **any** GitLab CI job (including Duo): the runner often exposes a different `GITLAB_TOKEN`. **`trigger-pipeline.js` refuses `GITLAB_TOKEN` in CI** unless you set **`FLOWFORGE_ALLOW_GITLAB_TOKEN=1`** (not recommended). Use **`FLOWFORGE_GITLAB_API_TOKEN`** = your **`glpat-...`** secret.  
    - `CI_JOB_TOKEN` alone often **cannot** create pipelines → **401**.
 3. **Branch:** optional **`FLOWFORGE_DEPLOY_REF`** (defaults to **`CI_DEFAULT_BRANCH`** or **`main`**).
-4. **Verify which token CI used:** `trigger-pipeline.js` logs **`sha256(<source>)=<hex>`** (UTF-8 of the secret the job actually sends). On your machine, compare with the token you expect (no newline):  
+4. **Duo workloads** may not set `CI=true`; the script detects a GitLab job via **`CI_JOB_TOKEN`** and refuses **`GITLAB_TOKEN`** there so you are forced to use **`FLOWFORGE_GITLAB_API_TOKEN`** or **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`**.
+5. **Verify which token CI used:** `trigger-pipeline.js` logs **`sha256(<source>)=<hex>`** (UTF-8 of the secret the job actually sends). On your machine, compare with the token you expect (no newline):  
    `node -e "const c=require('crypto');const t=process.argv[1];console.log(c.createHash('sha256').update(t,'utf8').digest('hex'))" 'glpat-your-secret'`  
    If the hashes differ, GitLab did not inject your variable (wrong name, protected/environment scope, or Duo overriding `GITLAB_TOKEN`).
 

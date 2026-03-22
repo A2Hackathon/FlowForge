@@ -6,10 +6,10 @@
 // Auth (order):
 //   1) FLOWFORGE_GITLAB_TRIGGER_TOKEN / GITLAB_TRIGGER_TOKEN — Pipeline trigger (POST .../trigger/pipeline)
 //   2) FLOWFORGE_GITLAB_API_TOKEN — PRIVATE-TOKEN (use this for a Project access token in Duo; see below)
-//   3) GITLAB_TOKEN — last resort for PRIVATE-TOKEN (GitLab Duo often injects its own GITLAB_TOKEN and overrides your CI variable → 401)
+//   3) GITLAB_TOKEN — PRIVATE-TOKEN only when **not** in GitLab CI, or when FLOWFORGE_ALLOW_GITLAB_TOKEN=1 (Duo injects GITLAB_TOKEN in CI → 401)
 //   4) CI_JOB_TOKEN — JOB-TOKEN (often 401)
 //
-// Duo: store your project access token as FLOWFORGE_GITLAB_API_TOKEN, not GITLAB_TOKEN.
+// In GitLab CI, use FLOWFORGE_GITLAB_API_TOKEN for your glpat (never rely on GITLAB_TOKEN here).
 // dotenv: override:false so CI wins over .env
 
 const path = require('path');
@@ -99,12 +99,6 @@ console.log(
         ? 'CI_JOB_TOKEN (may 401 on POST /pipeline)'
         : 'none'
 );
-if (hasPrivate && privateSource === 'GITLAB_TOKEN') {
-  console.log(
-    '[trigger-pipeline] hint: If you get 401, Duo may have overridden GITLAB_TOKEN. Set CI/CD variable FLOWFORGE_GITLAB_API_TOKEN to your project access token (glpat-...) instead.'
-  );
-}
-
 // Fingerprint of the credential GitLab injected (verify locally: printf '%s' 'your-token' | shasum -a 256)
 if (triggerToken) {
   console.log('[trigger-pipeline] sha256(pipeline trigger token)=', sha256Hex(triggerToken));
@@ -112,6 +106,30 @@ if (triggerToken) {
   console.log(`[trigger-pipeline] sha256(${privateSource})=`, sha256Hex(privateToken));
 } else if (hasJob) {
   console.log('[trigger-pipeline] sha256(CI_JOB_TOKEN)=', sha256Hex(jobTok));
+}
+
+// Duo workloads often omit CI=true / GITLAB_CI — but CI_JOB_TOKEN is always set on GitLab Runner jobs.
+const inGitLabRunnerJob =
+  Boolean(process.env.CI_JOB_TOKEN && String(process.env.CI_JOB_TOKEN).trim()) ||
+  process.env.GITLAB_CI === 'true' ||
+  process.env.CI === 'true' ||
+  process.env.CI === '1';
+const allowGitlabTokenInCi =
+  process.env.FLOWFORGE_ALLOW_GITLAB_TOKEN === '1' ||
+  process.env.FLOWFORGE_ALLOW_GITLAB_TOKEN === 'true';
+
+if (inGitLabRunnerJob && privateSource === 'GITLAB_TOKEN' && !allowGitlabTokenInCi) {
+  console.error('');
+  console.error('[trigger-pipeline] Refusing to use GITLAB_TOKEN in GitLab CI for this API.');
+  console.error('Duo and other jobs inject their own GITLAB_TOKEN — it is not your project access token.');
+  console.error('');
+  console.error('Fix: Settings → CI/CD → Variables → add');
+  console.error('  Key:   FLOWFORGE_GITLAB_API_TOKEN');
+  console.error('  Value: your Project access token secret (glpat-... from Settings → Access tokens)');
+  console.error('Or use FLOWFORGE_GITLAB_TRIGGER_TOKEN from Pipeline triggers.');
+  console.error('Escape hatch (not recommended): FLOWFORGE_ALLOW_GITLAB_TOKEN=1');
+  console.error('');
+  process.exit(1);
 }
 
 function handleSuccess({ data }) {
@@ -138,7 +156,7 @@ function handleError(err, authKind) {
       console.error('Fix: Create a Project access token (api scope), add CI/CD variable FLOWFORGE_GITLAB_API_TOKEN = the glpat-... secret (not the token name). Do not rely on GITLAB_TOKEN in Duo workloads.');
     } else {
       console.error('');
-      console.error('401 on JOB-TOKEN: usually not allowed to create pipelines. Use FLOWFORGE_GITLAB_TRIGGER_TOKEN (Pipeline trigger) or GITLAB_TOKEN (api).');
+      console.error('401 on JOB-TOKEN: usually not allowed to create pipelines. Use FLOWFORGE_GITLAB_TRIGGER_TOKEN or FLOWFORGE_GITLAB_API_TOKEN.');
     }
   }
   process.exit(1);
