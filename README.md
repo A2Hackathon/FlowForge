@@ -103,10 +103,11 @@ The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes
 After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipeline.js` by default**, starting a **real** GitLab pipeline on your default branch (same as a push) so **`gcp-plan` → … → `deploy-cloud-run`** can run.
 
 1. **Opt out** (if you do not want a pipeline every Duo run): **Settings → CI/CD → Variables** → **`FLOWFORGE_SKIP_PIPELINE_TRIGGER`** = **`1`**.
-2. **Auth (required — Duo often gets `401` with `CI_JOB_TOKEN` alone):**  
-   - **Recommended:** **Settings → CI/CD → Pipeline triggers** → **Add trigger** → copy the token → add CI/CD variable **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** (masked). This is what `trigger-pipeline.js` tries first.  
-   - **Alternative:** **Settings → Access tokens** → project token with **`api`** scope → **`GITLAB_TOKEN`**.  
-   - `CI_JOB_TOKEN` alone often **cannot** call `POST /projects/:id/pipeline` → **401 Unauthorized**.
+2. **Auth (required — Duo often gets `401`):**  
+   - **Recommended:** **Settings → CI/CD → Pipeline triggers** → **Add trigger** → copy the **`glptt-...`** token → CI/CD variable **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** (masked).  
+   - **Alternative (Project access token):** **Settings → Access tokens** → create token with **`api`** → copy the **`glpat-...`** secret once → CI/CD variable **`FLOWFORGE_GITLAB_API_TOKEN`** (masked).  
+   - **Do not** rely on **`GITLAB_TOKEN`** for this in Duo: GitLab Duo **injects its own `GITLAB_TOKEN`** for the agent, which **overrides** your project variable — `trigger-pipeline.js` then uses the wrong token and gets **401**. Use **`FLOWFORGE_GITLAB_API_TOKEN`** for your project token.  
+   - `CI_JOB_TOKEN` alone often **cannot** create pipelines → **401**.
 3. **Branch:** optional **`FLOWFORGE_DEPLOY_REF`** (defaults to **`CI_DEFAULT_BRANCH`** or **`main`**).
 
 **Important:** The **assistant chat text** (“deployment approved”, etc.) is **not** the deploy. Look in the **Duo workload job log** for **`=== FlowForge: post-CLI pipeline trigger ===`** and **`Pipeline triggered:`** from `trigger-pipeline.js`, and in **CI/CD → Pipelines** for a new run. If you use a **GitLab AI Catalog** agent (`ai_catalog_agent` in logs), its replies are separate from this script — change that flow’s prompt or use this repo’s FlowForge flow YAML.

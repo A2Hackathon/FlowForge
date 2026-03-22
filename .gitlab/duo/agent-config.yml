@@ -14,7 +14,7 @@ setup_script:
   - node src/agent/cli.js "${CI_PROJECT_ID}" --write-files
   # Trigger the project CI pipeline (plan → deploy to GCP) after the plan is written — same as a push to main.
   # Runs by default. Opt out: CI/CD variable FLOWFORGE_SKIP_PIPELINE_TRIGGER=1
-  # Auth: set FLOWFORGE_GITLAB_TRIGGER_TOKEN (Pipeline trigger token) or GITLAB_TOKEN (api). CI_JOB_TOKEN alone often 401s.
+  # Auth: FLOWFORGE_GITLAB_TRIGGER_TOKEN (glptt) or FLOWFORGE_GITLAB_API_TOKEN (glpat). Do not use GITLAB_TOKEN for PAT in Duo — Duo overrides it.
   - |
     echo "=== FlowForge: post-CLI pipeline trigger ==="
     if [ "${FLOWFORGE_SKIP_PIPELINE_TRIGGER:-}" = "1" ] || [ "${FLOWFORGE_SKIP_PIPELINE_TRIGGER:-}" = "true" ]; then

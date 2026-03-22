@@ -4,12 +4,13 @@
 // Usage: node scripts/trigger-pipeline.js <projectId> [branch]
 //
 // Auth (order):
-//   1) FLOWFORGE_GITLAB_TRIGGER_TOKEN / GITLAB_TRIGGER_TOKEN — Pipeline trigger token (POST .../trigger/pipeline)
-//   2) GITLAB_TOKEN — PRIVATE-TOKEN + api scope
-//   3) CI_JOB_TOKEN — JOB-TOKEN (often 401 on gitlab.com)
+//   1) FLOWFORGE_GITLAB_TRIGGER_TOKEN / GITLAB_TRIGGER_TOKEN — Pipeline trigger (POST .../trigger/pipeline)
+//   2) FLOWFORGE_GITLAB_API_TOKEN — PRIVATE-TOKEN (use this for a Project access token in Duo; see below)
+//   3) GITLAB_TOKEN — last resort for PRIVATE-TOKEN (GitLab Duo often injects its own GITLAB_TOKEN and overrides your CI variable → 401)
+//   4) CI_JOB_TOKEN — JOB-TOKEN (often 401)
 //
-// Never put the variable *name* as the value in CI/CD Variables — the Value must be the glptt-... token string.
-// dotenv must not override CI: override:false
+// Duo: store your project access token as FLOWFORGE_GITLAB_API_TOKEN, not GITLAB_TOKEN.
+// dotenv: override:false so CI wins over .env
 
 const path = require('path');
 try {
@@ -42,9 +43,12 @@ function sanitizeTriggerToken(raw, envKey) {
     envKey,
     'GITLAB_TRIGGER_TOKEN',
     'FLOWFORGE_GITLAB_TRIGGER_TOKEN',
+    'FLOWFORGE_GITLAB_API_TOKEN',
     'GITLAB_TOKEN',
     '$FLOWFORGE_GITLAB_TRIGGER_TOKEN',
     '${FLOWFORGE_GITLAB_TRIGGER_TOKEN}',
+    '$FLOWFORGE_GITLAB_API_TOKEN',
+    '${FLOWFORGE_GITLAB_API_TOKEN}',
     '$GITLAB_TRIGGER_TOKEN',
     '${GITLAB_TRIGGER_TOKEN}',
   ]);
@@ -63,7 +67,17 @@ function sanitizeTriggerToken(raw, envKey) {
 const rawTrigger =
   process.env.FLOWFORGE_GITLAB_TRIGGER_TOKEN || process.env.GITLAB_TRIGGER_TOKEN;
 const triggerToken = sanitizeTriggerToken(rawTrigger, 'FLOWFORGE_GITLAB_TRIGGER_TOKEN');
-const privateToken = sanitizeTriggerToken(process.env.GITLAB_TOKEN, 'GITLAB_TOKEN');
+
+let privateToken = '';
+let privateSource = '';
+if (process.env.FLOWFORGE_GITLAB_API_TOKEN && String(process.env.FLOWFORGE_GITLAB_API_TOKEN).trim()) {
+  privateToken = sanitizeTriggerToken(process.env.FLOWFORGE_GITLAB_API_TOKEN, 'FLOWFORGE_GITLAB_API_TOKEN');
+  privateSource = 'FLOWFORGE_GITLAB_API_TOKEN';
+} else if (process.env.GITLAB_TOKEN && String(process.env.GITLAB_TOKEN).trim()) {
+  privateToken = sanitizeTriggerToken(process.env.GITLAB_TOKEN, 'GITLAB_TOKEN');
+  privateSource = 'GITLAB_TOKEN';
+}
+
 const jobTok = process.env.CI_JOB_TOKEN;
 const hasPrivate = Boolean(privateToken && privateToken.length > 0);
 const hasJob = Boolean(jobTok && jobTok.length > 0);
@@ -74,11 +88,16 @@ console.log(
   triggerToken
     ? `pipeline trigger token (length ${triggerToken.length})`
     : hasPrivate
-      ? `GITLAB_TOKEN (length ${privateToken.length})`
+      ? `PRIVATE-TOKEN from ${privateSource} (length ${privateToken.length})`
       : hasJob
         ? 'CI_JOB_TOKEN (may 401 on POST /pipeline)'
         : 'none'
 );
+if (hasPrivate && privateSource === 'GITLAB_TOKEN') {
+  console.log(
+    '[trigger-pipeline] hint: If you get 401, Duo may have overridden GITLAB_TOKEN. Set CI/CD variable FLOWFORGE_GITLAB_API_TOKEN to your project access token (glpat-...) instead.'
+  );
+}
 
 function handleSuccess({ data }) {
   console.log('Pipeline triggered:', data.id, data.web_url || data.status || '');
@@ -100,7 +119,8 @@ function handleError(err, authKind) {
       console.error('Regenerate: Settings → CI/CD → Pipeline triggers → add trigger → copy glptt-... into FLOWFORGE_GITLAB_TRIGGER_TOKEN value.');
     } else if (authKind === 'private') {
       console.error('');
-      console.error('401 on PRIVATE-TOKEN: token expired, revoked, or missing "api" scope.');
+      console.error('401 on PRIVATE-TOKEN: wrong/expired token, or Duo injected a different GITLAB_TOKEN.');
+      console.error('Fix: Create a Project access token (api scope), add CI/CD variable FLOWFORGE_GITLAB_API_TOKEN = the glpat-... secret (not the token name). Do not rely on GITLAB_TOKEN in Duo workloads.');
     } else {
       console.error('');
       console.error('401 on JOB-TOKEN: usually not allowed to create pipelines. Use FLOWFORGE_GITLAB_TRIGGER_TOKEN (Pipeline trigger) or GITLAB_TOKEN (api).');
@@ -164,7 +184,7 @@ if (triggerToken) {
     .then(handleSuccess)
     .catch((err) => handleError(err, 'job'));
 } else {
-  console.error('No auth: set FLOWFORGE_GITLAB_TRIGGER_TOKEN to the glptt-... secret from Pipeline triggers, or GITLAB_TOKEN (api), or CI_JOB_TOKEN.');
+  console.error('No auth: set FLOWFORGE_GITLAB_TRIGGER_TOKEN (Pipeline trigger), or FLOWFORGE_GITLAB_API_TOKEN (project token glpat-...), or CI_JOB_TOKEN.');
   console.error('If the variable is set in GitLab but empty here: use the same variable name; check Protected/Environment scope; Duo must run on a ref that receives the variable.');
   process.exit(1);
 }
