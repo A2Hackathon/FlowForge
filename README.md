@@ -109,6 +109,9 @@ After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipel
    - **Do not** rely on **`GITLAB_TOKEN`** for this in Duo: GitLab Duo **injects its own `GITLAB_TOKEN`** for the agent, which **overrides** your project variable — `trigger-pipeline.js` then uses the wrong token and gets **401**. Use **`FLOWFORGE_GITLAB_API_TOKEN`** for your project token.  
    - `CI_JOB_TOKEN` alone often **cannot** create pipelines → **401**.
 3. **Branch:** optional **`FLOWFORGE_DEPLOY_REF`** (defaults to **`CI_DEFAULT_BRANCH`** or **`main`**).
+4. **Verify which token CI used:** `trigger-pipeline.js` logs **`sha256(<source>)=<hex>`** (UTF-8 of the secret the job actually sends). On your machine, compare with the token you expect (no newline):  
+   `node -e "const c=require('crypto');const t=process.argv[1];console.log(c.createHash('sha256').update(t,'utf8').digest('hex'))" 'glpat-your-secret'`  
+   If the hashes differ, GitLab did not inject your variable (wrong name, protected/environment scope, or Duo overriding `GITLAB_TOKEN`).
 
 **Important:** The **assistant chat text** (“deployment approved”, etc.) is **not** the deploy. Look in the **Duo workload job log** for **`=== FlowForge: post-CLI pipeline trigger ===`** and **`Pipeline triggered:`** from `trigger-pipeline.js`, and in **CI/CD → Pipelines** for a new run. If you use a **GitLab AI Catalog** agent (`ai_catalog_agent` in logs), its replies are separate from this script — change that flow’s prompt or use this repo’s FlowForge flow YAML.
 

@@ -13,6 +13,7 @@
 // dotenv: override:false so CI wins over .env
 
 const path = require('path');
+const crypto = require('crypto');
 try {
   require('dotenv').config({
     path: path.resolve(__dirname, '..', '.env'),
@@ -82,7 +83,12 @@ const jobTok = process.env.CI_JOB_TOKEN;
 const hasPrivate = Boolean(privateToken && privateToken.length > 0);
 const hasJob = Boolean(jobTok && jobTok.length > 0);
 
-// Safe diagnostics (no token values)
+/** SHA-256 (utf8) of the secret used for the API call — compare locally to your token to confirm CI injected the right value. */
+function sha256Hex(secret) {
+  return crypto.createHash('sha256').update(String(secret), 'utf8').digest('hex');
+}
+
+// Safe diagnostics (no raw token values)
 console.log(
   '[trigger-pipeline] auth:',
   triggerToken
@@ -97,6 +103,15 @@ if (hasPrivate && privateSource === 'GITLAB_TOKEN') {
   console.log(
     '[trigger-pipeline] hint: If you get 401, Duo may have overridden GITLAB_TOKEN. Set CI/CD variable FLOWFORGE_GITLAB_API_TOKEN to your project access token (glpat-...) instead.'
   );
+}
+
+// Fingerprint of the credential GitLab injected (verify locally: printf '%s' 'your-token' | shasum -a 256)
+if (triggerToken) {
+  console.log('[trigger-pipeline] sha256(pipeline trigger token)=', sha256Hex(triggerToken));
+} else if (hasPrivate) {
+  console.log(`[trigger-pipeline] sha256(${privateSource})=`, sha256Hex(privateToken));
+} else if (hasJob) {
+  console.log('[trigger-pipeline] sha256(CI_JOB_TOKEN)=', sha256Hex(jobTok));
 }
 
 function handleSuccess({ data }) {
