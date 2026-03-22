@@ -28,7 +28,19 @@ If **`NOT visible`**, the variable is missing in that job: wrong project, **Prot
 
 The Duo workload job checks out a **specific commit** (often `refs/workloads/...` → detached HEAD). If that commit is **older** than the FlowForge files that add the shell + `curl` block, you will **not** see those lines — you may see only `apk add ... git` (no **`curl`**), the old banner `=== FlowForge: post-CLI pipeline trigger ===` (without **`(shell + curl)`**), and **`[trigger-pipeline] auth: PRIVATE-TOKEN from GITLAB_TOKEN`** from an older `scripts/trigger-pipeline.js`.
 
-**Fix:** Merge/push the latest **`.gitlab/duo/agent-config.yml`** and **`scripts/trigger-pipeline.js`** to the branch Duo uses (e.g. **`main`**), then **re-run the Duo flow** so the new workload uses a **newer SHA**. In the job log, confirm **`git curl`** in the `apk add` line and the **`(shell + curl)`** banner before trusting env visibility output.
+#### Frozen workload snapshot (why push to `main` didn’t help)
+
+**Runtime check:** In the job log, find **`Getting source from Git repository`** → **`Checking out <sha> as detached HEAD (ref is refs/workloads/...)`**.
+
+- If **`<sha>` is always the same** across runs (e.g. **`bada3472`** every time) while **`main`** on GitLab has **newer** commits, the flow is **not** using your latest pushed tree for that workload. Re-running the **same** Duo workload / pipeline can keep the **same** `refs/workloads/<id>` snapshot.
+- **Pushing to `default branch` alone does not rewrite** an existing workload ref’s checkout; you need a workload run whose snapshot includes your new commits.
+
+**What to do:**
+
+1. In the GitLab UI, open **Repository** and confirm **`main`** (or your default branch) actually contains the updated **`.gitlab/duo/agent-config.yml`** (e.g. **`apk add ... git curl`**, **`(shell + curl)`** in the echo).
+2. Trigger the flow in a way that starts a **new** workload (new run), not only “retry job” on an old workload pipeline — watch for a **new** `refs/workloads/...` value or a **new** short SHA in **`Checking out ...`** matching **`main`**.
+3. If the SHA **never** updates, try **recreating** or **re-saving** the Duo flow (project **Automate → Flows**), or open a **new** issue/MR/chat that invokes the flow per GitLab’s behavior for your tier — you need a run that resolves **`main` HEAD** (or the branch you care about) into the workload checkout.
+4. After it works, the log should show **`git curl`**, **`[flowforge] workload commit CI_COMMIT_SHORT_SHA=...`**, **`(shell + curl)`**, then **`[flowforge] CI env visibility`**.
 
 ---
 

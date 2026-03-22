@@ -6,6 +6,8 @@ image: node:20-alpine
 setup_script:
   # curl: trigger pipeline from shell so Duo using an old checkout of scripts/trigger-pipeline.js still works
   - apk add --no-cache git curl
+  # If this line never appears, the job is using an older snapshot — see docs/TRIGGER_PIPELINE_AUTH.md (frozen workload ref).
+  - 'echo "[flowforge] workload commit CI_COMMIT_SHORT_SHA=${CI_COMMIT_SHORT_SHA:-unknown} (must match default branch for latest agent-config)"'
   - npm ci
   - cd tools/retriever && npm ci && cd ../..
   # Retriever: index repo (entities + edges), then retrieve snippets for the user question (GOAL or fallback).

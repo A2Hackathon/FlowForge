@@ -63,9 +63,12 @@ build-container:
     - main
     - master
 
+# Pushes image in prior jobs; Cloud Run deploy is manual so you approve in GitLab (Run pipeline → Play on this job).
+# Fully automatic deploy: remove `when: manual` below.
 deploy-cloud-run:
   stage: deploy
   image: google/cloud-sdk:alpine
+  when: manual
   needs:
     - job: gcp-plan
       artifacts: true
@@ -78,6 +81,8 @@ deploy-cloud-run:
     - SERVICE_NAME=$(jq -r '.deploymentConfig.cloudRun.serviceName' gcp-plan.json)
     - IMAGE=$(cat deploy-image.txt)
     - gcloud run deploy "$SERVICE_NAME" --image="$IMAGE" --region="$GCP_REGION" --platform=managed --allow-unauthenticated --project="$GCP_PROJECT_ID"
+    - echo "=== Cloud Run service URL ==="
+    - gcloud run services describe "$SERVICE_NAME" --region="$GCP_REGION" --project="$GCP_PROJECT_ID" --format="value(status.url)"
   only:
     - main
     - master

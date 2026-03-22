@@ -87,6 +87,15 @@ For **Electron app / OAuth** you also need `GITLAB_CLIENT_ID` and `GITLAB_CLIENT
 
 ## GitLab Duo flow
 
+### GitLab CI: deploy to GCP (service account)
+
+The root **`.gitlab-ci.yml`** runs **`gcp-plan`**, then **`registry-prep`** → **`build-container`** → **`deploy-cloud-run`** on **`main`** / **`master`** only.
+
+1. **CI/CD variables:** **`GCP_PROJECT_ID`** and **`GCP_SERVICE_ACCOUNT_KEY`** (base64-encoded JSON key for a deploy service account).  
+2. **Manual Cloud Run deploy:** **`deploy-cloud-run`** uses **`when: manual`** — after the image is built, open **CI/CD → Pipelines** → **Play** on that job.  
+3. **IAM roles** for the service account: **`docs/GCP_DEPLOY_IAM.md`**.  
+4. **Step-by-step variable setup:** **`docs/CI_SA_SETUP.md`**.
+
 The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes the GCP plan and suggested pipeline in the response.
 
 **What the Duo flow does:**
@@ -103,6 +112,8 @@ The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes
 After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipeline.js` by default**, starting a **real** GitLab pipeline on your default branch (same as a push) so **`gcp-plan` → … → `deploy-cloud-run`** can run.
 
 **Which CI variable holds the token?** See **`docs/TRIGGER_PIPELINE_AUTH.md`** — use **`FLOWFORGE_GITLAB_API_TOKEN`** for a `glpat-...` or **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** for a pipeline trigger; do **not** rely on **`GITLAB_TOKEN`** in CI/Duo.
+
+**If Duo logs always show the same `Checking out <sha>`** (e.g. `bada3472`) while `main` has newer commits, the workload is using a **frozen snapshot** (`refs/workloads/...`). Pushing alone may not update it — see **“Frozen workload snapshot”** in **`docs/TRIGGER_PIPELINE_AUTH.md`**.
 
 1. **Opt out** (if you do not want a pipeline every Duo run): **Settings → CI/CD → Variables** → **`FLOWFORGE_SKIP_PIPELINE_TRIGGER`** = **`1`**.
 2. **Auth (required — Duo often gets `401`):**  
@@ -121,9 +132,10 @@ After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipel
 ### Duo chat text does **not** mean GCP deploy (unless a pipeline actually ran)
 
 - **Duo / agent replies are text only.** Phrases like “deployment approved” from an **LLM** are **not** proof that anything ran in your project.
-- **Actual deploy** runs when **GitLab CI** executes **`build-container`** + **`deploy-cloud-run`** — after a **push**, a **manual pipeline**, or **API trigger** (`scripts/trigger-pipeline.js`, including the optional Duo step above).
+- **Duo cannot open Google Cloud or perform interactive login.** Workloads are headless; deploy uses **non-interactive** auth (e.g. **`GCP_SERVICE_ACCOUNT_KEY`** in CI/CD variables). See **`docs/DUO_GCP_DEPLOY.md`**.
+- **Actual deploy** runs when **GitLab CI** executes **`build-container`** and you **Play** the manual **`deploy-cloud-run`** job (or remove `when: manual` in **`.gitlab-ci.yml`** for fully automatic deploy) — after a **push**, **Run pipeline**, or **API trigger** (`scripts/trigger-pipeline.js`, including the optional Duo step above).
 - The Duo flow’s **workflow finished successfully** means the **agent workload** completed; Cloud Run updates only if a **project pipeline** with deploy jobs succeeded.
-- If you use a **GitLab AI Catalog** flow (`ai_catalog_agent`), align prompts with this repo’s FlowForge YAML so the model does not claim deployment.
+- Logs mentioning **`PreConfiguredWorkflow`** with a “Deployment Validation” style message usually come from **GitLab’s pre-configured workflow**, not this repo’s **`flowforge-gcp.yaml`**. To avoid false “deployment approved” text, create the flow from **`.gitlab/duo/flows/flowforge-gcp.yaml`** and/or tighten prompts in the GitLab flow editor.
 
 ### Duo workload vs push pipeline (why you see “Build” vs `plan` → `deploy`)
 
