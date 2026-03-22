@@ -7,8 +7,8 @@
 // .env file loaded at startup — no UI, no database, no electron-store
 // fields for them.
 //
-// For CLI/CI (no Electron): set GITLAB_TOKEN (full glpat-... PAT), or rely on
-// CI_JOB_TOKEN in GitLab CI when GITLAB_TOKEN is missing / too short (see getAccessToken).
+// For CLI/CI (no Electron): prefer FLOWFORGE_GITLAB_API_TOKEN (glpat) then GITLAB_TOKEN, or
+// CI_JOB_TOKEN in GitLab CI when both are missing / too short (see getAccessToken).
 //
 // electron-store writes to:
 //   Windows : %APPDATA%/cloudmapper/config.json
@@ -46,6 +46,17 @@ function isLiteralVariableNamePlaceholder(s) {
   if (!s || typeof s !== 'string') return false;
   const t = s.trim();
   return t === '$GITLAB_TOKEN' || t === '${GITLAB_TOKEN}' || t === '{{GITLAB_TOKEN}}';
+}
+
+function isLiteralFlowforgeApiPlaceholder(s) {
+  if (!s || typeof s !== 'string') return false;
+  const t = s.trim();
+  return (
+    t === 'FLOWFORGE_GITLAB_API_TOKEN' ||
+    t === '$FLOWFORGE_GITLAB_API_TOKEN' ||
+    t === '${FLOWFORGE_GITLAB_API_TOKEN}' ||
+    t === '{{FLOWFORGE_GITLAB_API_TOKEN}}'
+  );
 }
 
 // ════════════════════════════════════════════════════════════
@@ -161,6 +172,8 @@ function logGitlabTokenMeta() {
     process.env.FLOWFORGE_LOG_GITLAB_TOKEN_META === 'true';
   if (!enabled) return;
 
+  const rawFf = process.env.FLOWFORGE_GITLAB_API_TOKEN;
+  const ff = typeof rawFf === 'string' ? rawFf.trim() : '';
   const rawGitlab = process.env.GITLAB_TOKEN;
   const gitlab = typeof rawGitlab === 'string' ? rawGitlab.trim() : rawGitlab;
   const job = process.env.CI_JOB_TOKEN;
@@ -170,6 +183,8 @@ function logGitlabTokenMeta() {
   const isPlaceholder = isLiteralVariableNamePlaceholder(gitlab);
   console.error(
     '[flow] GitLab token meta (raw secrets never printed; compare sha256 locally): ' +
+      `FLOWFORGE_GITLAB_API_TOKEN_len=${ff ? ff.length : 0}, ` +
+      `FLOWFORGE_GITLAB_API_TOKEN_sha256_16=${sha256Prefix16(ff)}, ` +
       `GITLAB_TOKEN_len=${gitlab ? gitlab.length : 0}, ` +
       `GITLAB_TOKEN_sha256_16=${sha256Prefix16(gitlab)}, ` +
       `GITLAB_TOKEN_is_literal_dollar_placeholder=${isPlaceholder}, ` +

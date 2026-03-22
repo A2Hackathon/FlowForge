@@ -97,6 +97,30 @@ function sha256Hex(secret) {
   return crypto.createHash('sha256').update(String(secret), 'utf8').digest('hex');
 }
 
+// Can this Node process see FLOWFORGE_GITLAB_API_TOKEN? (If false, CI/CD did not inject it — Protected/scope/wrong project.)
+const _ffApiRaw = process.env.FLOWFORGE_GITLAB_API_TOKEN;
+const _ffApiTrim = typeof _ffApiRaw === 'string' ? _ffApiRaw.trim() : '';
+console.log(
+  '[trigger-pipeline] FLOWFORGE_GITLAB_API_TOKEN:',
+  _ffApiTrim.length > 0
+    ? `visible to this process, length=${_ffApiTrim.length} (secret not logged)`
+    : 'NOT visible — unset or empty in process.env (add CI/CD variable; check Protected branch / environment scope)'
+);
+// #region agent log
+fetch('http://127.0.0.1:7839/ingest/873c42cd-7d91-4101-98ff-ada0c09060f7', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '234210' },
+  body: JSON.stringify({
+    sessionId: '234210',
+    location: 'scripts/trigger-pipeline.js:FLOWFORGE_GITLAB_API_TOKEN',
+    message: 'env visibility (length only, no secret)',
+    data: { present: _ffApiTrim.length > 0, length: _ffApiTrim.length },
+    timestamp: Date.now(),
+    hypothesisId: 'H1-env-visible',
+  }),
+}).catch(() => {});
+// #endregion
+
 // Safe diagnostics: exact env var *name* used (values never printed)
 console.log('[trigger-pipeline] env non-empty:', {
   FLOWFORGE_GITLAB_TRIGGER_TOKEN: Boolean(String(process.env.FLOWFORGE_GITLAB_TRIGGER_TOKEN || '').trim()),

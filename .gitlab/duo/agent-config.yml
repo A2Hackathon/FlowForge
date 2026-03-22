@@ -4,7 +4,8 @@
 image: node:20-alpine
 
 setup_script:
-  - apk add --no-cache git
+  # curl: trigger pipeline from shell so Duo using an old checkout of scripts/trigger-pipeline.js still works
+  - apk add --no-cache git curl
   - npm ci
   - cd tools/retriever && npm ci && cd ../..
   # Retriever: index repo (entities + edges), then retrieve snippets for the user question (GOAL or fallback).
@@ -14,15 +15,49 @@ setup_script:
   - node src/agent/cli.js "${CI_PROJECT_ID}" --write-files
   # Trigger the project CI pipeline (plan → deploy to GCP) after the plan is written — same as a push to main.
   # Runs by default. Opt out: CI/CD variable FLOWFORGE_SKIP_PIPELINE_TRIGGER=1
-  # Auth: FLOWFORGE_GITLAB_TRIGGER_TOKEN (glptt) or FLOWFORGE_GITLAB_API_TOKEN (glpat). Do not use GITLAB_TOKEN for PAT in Duo — Duo overrides it.
+  # Prefer curl + CI/CD vars here: Duo sometimes runs an OLD git checkout; node scripts/trigger-pipeline.js would stay stale.
+  # Set FLOWFORGE_GITLAB_TRIGGER_TOKEN (glptt) OR FLOWFORGE_GITLAB_API_TOKEN (glpat). Do NOT use GITLAB_TOKEN for your PAT.
   - |
-    echo "=== FlowForge: post-CLI pipeline trigger ==="
+    echo "=== FlowForge: post-CLI pipeline trigger (shell + curl) ==="
     if [ "${FLOWFORGE_SKIP_PIPELINE_TRIGGER:-}" = "1" ] || [ "${FLOWFORGE_SKIP_PIPELINE_TRIGGER:-}" = "true" ]; then
       echo "FLOWFORGE_SKIP_PIPELINE_TRIGGER is set — not triggering a pipeline."
     else
       REF="${FLOWFORGE_DEPLOY_REF:-${CI_DEFAULT_BRANCH:-main}}"
-      echo "Triggering GitLab pipeline on ref: $REF (project ${CI_PROJECT_ID})"
-      node scripts/trigger-pipeline.js "${CI_PROJECT_ID}" "$REF"
+      API_V4="${CI_API_V4_URL:-${CI_SERVER_URL}/api/v4}"
+      echo "Triggering on ref=$REF project=${CI_PROJECT_ID} api=$API_V4"
+      echo "[flowforge] CI env visibility (lengths only — secrets never printed):"
+      if [ -n "${FLOWFORGE_GITLAB_API_TOKEN:-}" ]; then
+        echo "  FLOWFORGE_GITLAB_API_TOKEN: visible, length=${#FLOWFORGE_GITLAB_API_TOKEN}"
+      else
+        echo "  FLOWFORGE_GITLAB_API_TOKEN: NOT visible (unset or empty) — add in Settings → CI/CD → Variables; check Protected / Environment scope"
+      fi
+      if [ -n "${FLOWFORGE_GITLAB_TRIGGER_TOKEN:-}" ]; then
+        echo "  FLOWFORGE_GITLAB_TRIGGER_TOKEN: visible, length=${#FLOWFORGE_GITLAB_TRIGGER_TOKEN}"
+      else
+        echo "  FLOWFORGE_GITLAB_TRIGGER_TOKEN: not set"
+      fi
+      if [ -n "${GITLAB_TOKEN:-}" ]; then
+        echo "  GITLAB_TOKEN: visible, length=${#GITLAB_TOKEN} (often Duo-injected; do not use as your PAT)"
+      else
+        echo "  GITLAB_TOKEN: not set"
+      fi
+      if [ -n "${FLOWFORGE_GITLAB_TRIGGER_TOKEN:-}" ]; then
+        echo "Using env FLOWFORGE_GITLAB_TRIGGER_TOKEN (Pipeline trigger token) via POST .../trigger/pipeline"
+        curl -sS --fail --show-error -w "\n" -X POST \
+          -F "token=${FLOWFORGE_GITLAB_TRIGGER_TOKEN}" \
+          -F "ref=${REF}" \
+          "${API_V4}/projects/${CI_PROJECT_ID}/trigger/pipeline"
+      elif [ -n "${FLOWFORGE_GITLAB_API_TOKEN:-}" ]; then
+        echo "Using env FLOWFORGE_GITLAB_API_TOKEN (Project access token) via PRIVATE-TOKEN — NOT GITLAB_TOKEN"
+        curl -sS --fail --show-error -w "\n" -X POST \
+          -H "PRIVATE-TOKEN: ${FLOWFORGE_GITLAB_API_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "{\"ref\":\"${REF}\"}" \
+          "${API_V4}/projects/${CI_PROJECT_ID}/pipeline"
+      else
+        echo "No FLOWFORGE_GITLAB_TRIGGER_TOKEN or FLOWFORGE_GITLAB_API_TOKEN in job env — falling back to node script (may be stale)."
+        node scripts/trigger-pipeline.js "${CI_PROJECT_ID}" "$REF"
+      fi
     fi
 
 cache:
