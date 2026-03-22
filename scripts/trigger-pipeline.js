@@ -3,13 +3,17 @@
 // Trigger a GitLab pipeline via API.
 // Usage: node scripts/trigger-pipeline.js <projectId> [branch]
 //
-// Auth (order):
-//   1) FLOWFORGE_GITLAB_TRIGGER_TOKEN / GITLAB_TRIGGER_TOKEN — Pipeline trigger (POST .../trigger/pipeline)
-//   2) FLOWFORGE_GITLAB_API_TOKEN — PRIVATE-TOKEN (use this for a Project access token in Duo; see below)
-//   3) GITLAB_TOKEN — PRIVATE-TOKEN only when **not** in GitLab CI, or when FLOWFORGE_ALLOW_GITLAB_TOKEN=1 (Duo injects GITLAB_TOKEN in CI → 401)
-//   4) CI_JOB_TOKEN — JOB-TOKEN (often 401)
+// Which env var name is used (exact keys GitLab CI must define):
 //
-// In GitLab CI, use FLOWFORGE_GITLAB_API_TOKEN for your glpat (never rely on GITLAB_TOKEN here).
+// | Priority | Env var name                      | What it holds              | API usage                    |
+// |----------|-----------------------------------|----------------------------|------------------------------|
+// | 1a       | FLOWFORGE_GITLAB_TRIGGER_TOKEN    | Pipeline trigger (glptt-…) | POST …/trigger/pipeline      |
+// | 1b       | GITLAB_TRIGGER_TOKEN              | same as 1a (alias)         | same                         |
+// | 2        | FLOWFORGE_GITLAB_API_TOKEN        | Project access token (glpat-…) | PRIVATE-TOKEN header     |
+// | 3        | GITLAB_TOKEN                      | fallback glpat (local only)   | PRIVATE-TOKEN — blocked inside Runner jobs unless FLOWFORGE_ALLOW_GITLAB_TOKEN=1 |
+// | 4        | CI_JOB_TOKEN                      | injected by Runner         | JOB-TOKEN (often 401)        |
+//
+// In Duo/CI: set FLOWFORGE_GITLAB_API_TOKEN or FLOWFORGE_GITLAB_TRIGGER_TOKEN — never rely on GITLAB_TOKEN.
 // dotenv: override:false so CI wins over .env
 
 const path = require('path');
@@ -68,6 +72,11 @@ function sanitizeTriggerToken(raw, envKey) {
 const rawTrigger =
   process.env.FLOWFORGE_GITLAB_TRIGGER_TOKEN || process.env.GITLAB_TRIGGER_TOKEN;
 const triggerToken = sanitizeTriggerToken(rawTrigger, 'FLOWFORGE_GITLAB_TRIGGER_TOKEN');
+const triggerEnvVarName = process.env.FLOWFORGE_GITLAB_TRIGGER_TOKEN?.trim()
+  ? 'FLOWFORGE_GITLAB_TRIGGER_TOKEN'
+  : process.env.GITLAB_TRIGGER_TOKEN?.trim()
+    ? 'GITLAB_TRIGGER_TOKEN'
+    : '';
 
 let privateToken = '';
 let privateSource = '';
@@ -88,17 +97,36 @@ function sha256Hex(secret) {
   return crypto.createHash('sha256').update(String(secret), 'utf8').digest('hex');
 }
 
-// Safe diagnostics (no raw token values)
-console.log(
-  '[trigger-pipeline] auth:',
-  triggerToken
-    ? `pipeline trigger token (length ${triggerToken.length})`
-    : hasPrivate
-      ? `PRIVATE-TOKEN from ${privateSource} (length ${privateToken.length})`
-      : hasJob
-        ? 'CI_JOB_TOKEN (may 401 on POST /pipeline)'
-        : 'none'
-);
+// Safe diagnostics: exact env var *name* used (values never printed)
+console.log('[trigger-pipeline] env non-empty:', {
+  FLOWFORGE_GITLAB_TRIGGER_TOKEN: Boolean(String(process.env.FLOWFORGE_GITLAB_TRIGGER_TOKEN || '').trim()),
+  GITLAB_TRIGGER_TOKEN: Boolean(String(process.env.GITLAB_TRIGGER_TOKEN || '').trim()),
+  FLOWFORGE_GITLAB_API_TOKEN: Boolean(String(process.env.FLOWFORGE_GITLAB_API_TOKEN || '').trim()),
+  GITLAB_TOKEN: Boolean(String(process.env.GITLAB_TOKEN || '').trim()),
+  CI_JOB_TOKEN: Boolean(String(process.env.CI_JOB_TOKEN || '').trim()),
+});
+if (triggerToken) {
+  console.log(
+    '[trigger-pipeline] USING credential from env var:',
+    triggerEnvVarName || 'FLOWFORGE_GITLAB_TRIGGER_TOKEN|GITLAB_TRIGGER_TOKEN',
+    '| method: POST …/trigger/pipeline | length:',
+    triggerToken.length
+  );
+} else if (hasPrivate) {
+  console.log(
+    '[trigger-pipeline] USING credential from env var:',
+    privateSource,
+    '| method: PRIVATE-TOKEN header | length:',
+    privateToken.length
+  );
+} else if (hasJob) {
+  console.log(
+    '[trigger-pipeline] USING credential from env var: CI_JOB_TOKEN | method: JOB-TOKEN header | length:',
+    jobTok.length
+  );
+} else {
+  console.log('[trigger-pipeline] USING: no credential matched (see table in script header)');
+}
 // Fingerprint of the credential GitLab injected (verify locally: printf '%s' 'your-token' | shasum -a 256)
 if (triggerToken) {
   console.log('[trigger-pipeline] sha256(pipeline trigger token)=', sha256Hex(triggerToken));
@@ -120,8 +148,8 @@ const allowGitlabTokenInCi =
 
 if (inGitLabRunnerJob && privateSource === 'GITLAB_TOKEN' && !allowGitlabTokenInCi) {
   console.error('');
-  console.error('[trigger-pipeline] Refusing to use GITLAB_TOKEN in GitLab CI for this API.');
-  console.error('Duo and other jobs inject their own GITLAB_TOKEN — it is not your project access token.');
+  console.error('[trigger-pipeline] Refusing env var GITLAB_TOKEN inside a GitLab Runner job.');
+  console.error('The Runner injects its own GITLAB_TOKEN — it is not the Project access token you created.');
   console.error('');
   console.error('Fix: Settings → CI/CD → Variables → add');
   console.error('  Key:   FLOWFORGE_GITLAB_API_TOKEN');

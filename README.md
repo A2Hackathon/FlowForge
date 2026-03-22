@@ -102,6 +102,8 @@ The Duo flow runs the CLI in a GitLab Duo workload job, then an agent summarizes
 
 After **`cli.js --write-files`**, the Duo workload **runs `scripts/trigger-pipeline.js` by default**, starting a **real** GitLab pipeline on your default branch (same as a push) so **`gcp-plan` → … → `deploy-cloud-run`** can run.
 
+**Which CI variable holds the token?** See **`docs/TRIGGER_PIPELINE_AUTH.md`** — use **`FLOWFORGE_GITLAB_API_TOKEN`** for a `glpat-...` or **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** for a pipeline trigger; do **not** rely on **`GITLAB_TOKEN`** in CI/Duo.
+
 1. **Opt out** (if you do not want a pipeline every Duo run): **Settings → CI/CD → Variables** → **`FLOWFORGE_SKIP_PIPELINE_TRIGGER`** = **`1`**.
 2. **Auth (required — Duo often gets `401`):**  
    - **Recommended:** **Settings → CI/CD → Pipeline triggers** → **Add trigger** → copy the **`glptt-...`** token → CI/CD variable **`FLOWFORGE_GITLAB_TRIGGER_TOKEN`** (masked).  
